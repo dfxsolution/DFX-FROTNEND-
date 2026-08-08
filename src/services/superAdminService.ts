@@ -50,6 +50,7 @@ interface BackendTenantListItem {
   admin_name: string | null;
   admin_email: string | null;
   admin_phone: string | null;
+  admin_is_active: boolean | null;
   created_at: string;
 }
 
@@ -62,6 +63,8 @@ export interface TenantListItem {
   adminName: string | null;
   adminEmail: string | null;
   adminPhone: string | null;
+  /** Null when the tenant has no Admin user yet. */
+  adminIsActive: boolean | null;
   createdAt: string;
 }
 
@@ -74,6 +77,7 @@ function mapTenant(raw: BackendTenantListItem): TenantListItem {
     adminName: raw.admin_name,
     adminEmail: raw.admin_email,
     adminPhone: raw.admin_phone,
+    adminIsActive: raw.admin_is_active,
     createdAt: raw.created_at,
   };
 }
@@ -97,6 +101,26 @@ function mapTenantDetail(raw: BackendTenantDetail): TenantDetail {
     brandColor: raw.brand_color ?? null,
     logoUrl: raw.logo_url ?? null,
   };
+}
+
+interface BackendTenantAdmin {
+  id: string;
+  name: string;
+  email: string | null;
+  phone: string | null;
+  is_active: boolean;
+}
+
+export interface TenantAdmin {
+  id: string;
+  name: string;
+  email: string | null;
+  phone: string | null;
+  isActive: boolean;
+}
+
+function mapTenantAdmin(raw: BackendTenantAdmin): TenantAdmin {
+  return { id: raw.id, name: raw.name, email: raw.email, phone: raw.phone, isActive: raw.is_active };
 }
 
 /* ------------------------------------------------------------------ */
@@ -351,6 +375,37 @@ export const superAdminService = {
 
   async disableTenant(id: string): Promise<TenantDetail> {
     return superAdminService.setTenantStatus(id, 'Inactive');
+  },
+
+  /**
+   * PUT /api/v1/superadmin/tenants/{id}/admin/status (SuperAdmin) — flips
+   * the tenant's primary Admin's own is_active flag. Distinct from
+   * setTenantStatus above: that only toggles the tenant-level flag and
+   * (by backend design) never blocks the Admin's login; this does.
+   */
+  async setTenantAdminStatus(id: string, isActive: boolean): Promise<TenantAdmin> {
+    const res = await apiClient.put<{ admin: BackendTenantAdmin }>(
+      `/superadmin/tenants/${id}/admin/status`,
+      { is_active: isActive },
+      { auth: true }
+    );
+    return mapTenantAdmin(res.data.admin);
+  },
+
+  /**
+   * POST /api/v1/superadmin/tenants/{id}/admin/reset-password (SuperAdmin) —
+   * issues a real password reset token/email for the tenant's Admin.
+   */
+  async resetTenantAdminPassword(id: string): Promise<{ adminEmail: string; resetEmailSent: boolean }> {
+    const res = await apiClient.post<{ reset: { admin_email: string; reset_email_sent: boolean } }>(
+      `/superadmin/tenants/${id}/admin/reset-password`,
+      undefined,
+      { auth: true }
+    );
+    return {
+      adminEmail: res.data.reset.admin_email,
+      resetEmailSent: res.data.reset.reset_email_sent,
+    };
   },
 
   /** GET /api/v1/superadmin/tenants/{id}/statistics (SuperAdmin) */

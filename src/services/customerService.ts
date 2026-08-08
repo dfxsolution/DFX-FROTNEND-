@@ -48,6 +48,54 @@ function mapProfile(raw: BackendProfile): CustomerProfile {
   };
 }
 
+/** Shape of the `profile` object returned by GET/PUT /admin/tenant/profile. */
+interface BackendTenantProfile {
+  id: string;
+  name: string;
+  slug: string;
+  status: string;
+  contact_email: string | null;
+  contact_phone: string | null;
+  gst_number: string | null;
+  brand_color: string | null;
+  logo_url: string | null;
+}
+
+export interface TenantProfile {
+  id: string;
+  name: string;
+  slug: string;
+  status: string;
+  contactEmail: string;
+  contactPhone: string;
+  gstNumber: string;
+  brandColor: string;
+  logoUrl: string;
+}
+
+/** Only the fields Admin can actually edit — id/name/slug/status are read-only here. */
+export interface UpdateTenantProfileData {
+  contact_email?: string;
+  contact_phone?: string;
+  gst_number?: string;
+  brand_color?: string;
+  logo_url?: string;
+}
+
+function mapTenantProfile(raw: BackendTenantProfile): TenantProfile {
+  return {
+    id: raw.id,
+    name: raw.name,
+    slug: raw.slug,
+    status: raw.status,
+    contactEmail: raw.contact_email ?? '',
+    contactPhone: raw.contact_phone ?? '',
+    gstNumber: raw.gst_number ?? '',
+    brandColor: raw.brand_color ?? '',
+    logoUrl: raw.logo_url ?? '',
+  };
+}
+
 export type AddressType = 'Home' | 'Work' | 'Other';
 
 /** Shape of an `address` object returned by the FastAPI backend. */
@@ -265,6 +313,18 @@ export const customerService = {
   async updateProfile(data: UpdateProfileData): Promise<CustomerProfile> {
     const res = await apiClient.put<{ profile: BackendProfile }>('/customer/profile', data, { auth: true });
     return mapProfile(res.data.profile);
+  },
+
+  /** GET /api/v1/admin/tenant/profile */
+  async getTenantProfile(): Promise<TenantProfile> {
+    const res = await apiClient.get<{ profile: BackendTenantProfile }>('/admin/tenant/profile', { auth: true });
+    return mapTenantProfile(res.data.profile);
+  },
+
+  /** PUT /api/v1/admin/tenant/profile — only send fields the user actually changed. */
+  async updateTenantProfile(data: UpdateTenantProfileData): Promise<TenantProfile> {
+    const res = await apiClient.put<{ profile: BackendTenantProfile }>('/admin/tenant/profile', data, { auth: true });
+    return mapTenantProfile(res.data.profile);
   },
 
   /** GET /api/v1/customer/addresses */

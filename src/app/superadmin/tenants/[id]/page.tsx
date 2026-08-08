@@ -8,7 +8,7 @@ import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Dialog, DialogFooter } from '@/components/ui/dialog';
 import { Toast } from '@/components/ui/toast';
-import { ArrowLeft, Users, Coins, CreditCard, Scale, ShieldCheck, ShieldOff } from 'lucide-react';
+import { ArrowLeft, Users, Coins, CreditCard, Scale, ShieldCheck, ShieldOff, KeyRound, UserX, UserCheck } from 'lucide-react';
 import { formatCurrency } from '@/lib/formatters';
 import {
   superAdminService,
@@ -36,6 +36,10 @@ export default function SuperAdminTenantDetailPage() {
   const [toggling, setToggling] = useState(false);
   const [disableConfirmOpen, setDisableConfirmOpen] = useState(false);
   const [toastMsg, setToastMsg] = useState<string | null>(null);
+
+  const [adminActionLoading, setAdminActionLoading] = useState(false);
+  const [deactivateAdminConfirmOpen, setDeactivateAdminConfirmOpen] = useState(false);
+  const [resetPasswordConfirmOpen, setResetPasswordConfirmOpen] = useState(false);
 
   const loadTenant = async () => {
     setLoading(true);
@@ -85,6 +89,50 @@ export default function SuperAdminTenantDetailPage() {
       setToastMsg(err instanceof ApiError ? err.message : 'Could not disable tenant');
     } finally {
       setToggling(false);
+    }
+  };
+
+  const handleReactivateAdmin = async () => {
+    setAdminActionLoading(true);
+    try {
+      await superAdminService.setTenantAdminStatus(tenantId, true);
+      await loadTenant();
+      setToastMsg('Admin account reactivated');
+    } catch (err) {
+      setToastMsg(err instanceof ApiError ? err.message : 'Could not reactivate Admin account');
+    } finally {
+      setAdminActionLoading(false);
+    }
+  };
+
+  const handleConfirmDeactivateAdmin = async () => {
+    setAdminActionLoading(true);
+    try {
+      await superAdminService.setTenantAdminStatus(tenantId, false);
+      await loadTenant();
+      setDeactivateAdminConfirmOpen(false);
+      setToastMsg('Admin account deactivated');
+    } catch (err) {
+      setToastMsg(err instanceof ApiError ? err.message : 'Could not deactivate Admin account');
+    } finally {
+      setAdminActionLoading(false);
+    }
+  };
+
+  const handleConfirmResetPassword = async () => {
+    setAdminActionLoading(true);
+    try {
+      const result = await superAdminService.resetTenantAdminPassword(tenantId);
+      setResetPasswordConfirmOpen(false);
+      setToastMsg(
+        result.resetEmailSent
+          ? `Password reset link sent to ${result.adminEmail}`
+          : `Reset link generated for ${result.adminEmail}, but the notification email could not be sent`
+      );
+    } catch (err) {
+      setToastMsg(err instanceof ApiError ? err.message : 'Could not reset Admin password');
+    } finally {
+      setAdminActionLoading(false);
     }
   };
 
@@ -177,6 +225,46 @@ export default function SuperAdminTenantDetailPage() {
             </div>
           </Card>
 
+          {tenant.adminName && (
+            <Card className="p-5 max-w-lg border-slate-200 shadow-xs">
+              <CardHeader className="p-0 mb-3 flex flex-row items-center justify-between">
+                <div>
+                  <CardTitle className="text-sm font-bold text-[#0B0E23]">Admin Account</CardTitle>
+                  <p className="text-[11px] text-slate-500 font-medium mt-0.5">
+                    Controls this tenant&apos;s own login — deactivating blocks access immediately.
+                  </p>
+                </div>
+                <Badge variant={tenant.adminIsActive ? 'success' : 'danger'} dot>
+                  {tenant.adminIsActive ? 'Active' : 'Deactivated'}
+                </Badge>
+              </CardHeader>
+              <CardContent className="p-0 flex items-center gap-2">
+                {tenant.adminIsActive ? (
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={() => setDeactivateAdminConfirmOpen(true)}
+                    className="border-red-200 text-red-700 hover:bg-red-50"
+                  >
+                    <UserX className="w-3.5 h-3.5 mr-1.5" /> Deactivate Admin
+                  </Button>
+                ) : (
+                  <Button
+                    size="sm"
+                    isLoading={adminActionLoading}
+                    onClick={handleReactivateAdmin}
+                    className="bg-emerald-600 hover:bg-emerald-700 text-white"
+                  >
+                    <UserCheck className="w-3.5 h-3.5 mr-1.5" /> Reactivate Admin
+                  </Button>
+                )}
+                <Button size="sm" variant="outline" onClick={() => setResetPasswordConfirmOpen(true)}>
+                  <KeyRound className="w-3.5 h-3.5 mr-1.5" /> Reset Password
+                </Button>
+              </CardContent>
+            </Card>
+          )}
+
           <Card className="p-5 border-slate-200 bg-white shadow-xs max-w-3xl">
             <CardHeader className="p-0 mb-4">
               <CardTitle className="text-base font-bold text-[#0B0E23]">Business Statistics</CardTitle>
@@ -233,6 +321,45 @@ export default function SuperAdminTenantDetailPage() {
           </Button>
           <Button size="sm" isLoading={toggling} onClick={handleConfirmDisable} className="bg-red-600 hover:bg-red-700 text-white">
             Disable Tenant
+          </Button>
+        </DialogFooter>
+      </Dialog>
+
+      <Dialog
+        isOpen={deactivateAdminConfirmOpen}
+        onClose={() => !adminActionLoading && setDeactivateAdminConfirmOpen(false)}
+        title="Deactivate Admin Account"
+      >
+        <p className="text-xs text-slate-600">
+          Deactivate the Admin account for <span className="font-bold text-[#0B0E23]">{tenant?.name}</span>? Unlike
+          disabling the tenant, this <strong>immediately blocks</strong> the Admin from logging in or using any
+          existing session.
+        </p>
+        <DialogFooter>
+          <Button variant="outline" size="sm" onClick={() => setDeactivateAdminConfirmOpen(false)} disabled={adminActionLoading}>
+            Cancel
+          </Button>
+          <Button size="sm" isLoading={adminActionLoading} onClick={handleConfirmDeactivateAdmin} className="bg-red-600 hover:bg-red-700 text-white">
+            Deactivate Admin
+          </Button>
+        </DialogFooter>
+      </Dialog>
+
+      <Dialog
+        isOpen={resetPasswordConfirmOpen}
+        onClose={() => !adminActionLoading && setResetPasswordConfirmOpen(false)}
+        title="Reset Admin Password"
+      >
+        <p className="text-xs text-slate-600">
+          Send a password reset link to <span className="font-bold text-[#0B0E23]">{tenant?.adminEmail ?? 'this tenant\'s Admin'}</span>?
+          The link expires shortly and can only be used once.
+        </p>
+        <DialogFooter>
+          <Button variant="outline" size="sm" onClick={() => setResetPasswordConfirmOpen(false)} disabled={adminActionLoading}>
+            Cancel
+          </Button>
+          <Button size="sm" isLoading={adminActionLoading} onClick={handleConfirmResetPassword}>
+            Send Reset Link
           </Button>
         </DialogFooter>
       </Dialog>

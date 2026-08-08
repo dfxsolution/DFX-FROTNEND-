@@ -28,7 +28,7 @@ export function TenantProvider({ children }: { children: React.ReactNode }) {
     let cancelled = false;
 
     async function loadBranding() {
-      const data = await tenantService.getBranding(user?.tenantId);
+      const data = await tenantService.getBranding(user?.role);
       if (cancelled) return;
       setBranding(data);
       setLoading(false);
@@ -43,7 +43,7 @@ export function TenantProvider({ children }: { children: React.ReactNode }) {
     return () => {
       cancelled = true;
     };
-  }, [user?.tenantId]);
+  }, [user?.role]);
 
   return (
     <TenantContext.Provider value={{ branding, loading }}>

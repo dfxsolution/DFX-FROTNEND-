@@ -1,43 +1,25 @@
-import { Tenant, TenantBranding, AuditLog } from '@/types';
-import { MOCK_TENANTS, MOCK_AUDIT_LOGS } from '@/mock/mockData';
+import { TenantBranding, UserRole } from '@/types';
 import { DEFAULT_BRANDING } from '@/constants';
+import { customerService } from '@/services/customerService';
 
 export const tenantService = {
-  async getTenants(): Promise<Tenant[]> {
-    return MOCK_TENANTS;
-  },
+  /**
+   * Only the Admin role can read /admin/tenant/profile (tenant-scoped, RBAC-gated).
+   * Customer and SuperAdmin have no backend-accessible branding source today, so
+   * they fall back to the platform default rather than a fake per-tenant value.
+   */
+  async getBranding(role?: UserRole): Promise<TenantBranding> {
+    if (role !== 'admin') return DEFAULT_BRANDING;
 
-  async getBranding(tenantId?: string): Promise<TenantBranding> {
-    const tenant = MOCK_TENANTS.find((t) => t.id === tenantId);
-    return tenant ? tenant.branding : DEFAULT_BRANDING;
-  },
-
-  async createTenant(newTenant: Omit<Tenant, 'id' | 'branding' | 'dueDate' | 'status'>): Promise<Tenant> {
-    const created: Tenant = {
-      ...newTenant,
-      id: `tnt_${Date.now()}`,
-      status: newTenant.plan === 'Trial' ? 'Trial' : 'Active',
-      dueDate: '15 Aug 2025',
-      branding: {
+    try {
+      const profile = await customerService.getTenantProfile();
+      return {
         ...DEFAULT_BRANDING,
-        brandName: newTenant.name,
-      },
-    };
-    MOCK_TENANTS.push(created);
-
-    MOCK_AUDIT_LOGS.unshift({
-      id: `log_${Date.now()}`,
-      actorName: 'Super Admin',
-      actorRole: 'superadmin',
-      action: `Created new tenant (${newTenant.plan} plan)`,
-      target: newTenant.name,
-      timestamp: 'Just now',
-    });
-
-    return created;
-  },
-
-  async getAuditLogs(): Promise<AuditLog[]> {
-    return MOCK_AUDIT_LOGS;
+        brandName: profile.name || DEFAULT_BRANDING.brandName,
+        brandColor: profile.brandColor || DEFAULT_BRANDING.brandColor,
+      };
+    } catch {
+      return DEFAULT_BRANDING;
+    }
   },
 };

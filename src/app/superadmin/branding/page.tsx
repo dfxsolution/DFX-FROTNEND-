@@ -17,8 +17,8 @@ export default function SuperAdminBrandingPage() {
       <div className="bg-white rounded-2xl border border-slate-line shadow-card">
         <ComingSoonPlaceholder
           icon={<Palette className="w-7 h-7" />}
-          title="Branding Coming Soon"
-          description="Per-tenant colors, logo, and white-label customization aren't configurable yet — Tenant has no branding fields in the backend. This feature will be available in a future release."
+          title="Managed Per Tenant, Not Here"
+          description="Each store's brand color and logo are configured by that store's own Admin, from their Store Configuration page — not by SuperAdmin. Open a store under Tenant Management to view its current branding."
         />
       </div>
     </div>
