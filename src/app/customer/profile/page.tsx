@@ -22,6 +22,7 @@ import {
   X,
   Gem,
   Receipt,
+  LifeBuoy,
 } from 'lucide-react';
 import { getInitials } from '@/lib/formatters';
 import { Toast } from '@/components/ui/toast';
@@ -155,10 +156,12 @@ export default function CustomerProfilePage() {
     { label: 'KYC Verification', icon: ShieldCheck, path: '/customer/kyc' },
     { label: 'My Addresses', icon: Home, path: '/customer/addresses' },
     { label: 'Live Bullion Rates', icon: TrendingUp, path: '/customer/rates' },
+    { label: 'Help & Support', icon: LifeBuoy, path: '/customer/support' },
     { label: 'Refer & Earn Rewards', icon: Share2, path: '/customer/refer' },
     { label: 'Branch Locator', icon: MapPin, path: '/customer/branch' },
-    { label: 'Notification Preferences', icon: Bell, action: () => setToast({ message: 'SMS & Push notifications enabled', type: 'success' }) },
-    { label: 'Language Settings (English)', icon: Globe, action: () => setToast({ message: 'Selected English (US)', type: 'success' }) },
+    // No backend for either — honestly disabled rather than faking a saved preference.
+    { label: 'Notification Preferences', icon: Bell, disabled: true },
+    { label: 'Language Settings', icon: Globe, disabled: true },
   ];
 
   return (
@@ -280,10 +283,24 @@ export default function CustomerProfilePage() {
       <Card className="p-2 border-slate-line divide-y divide-slate-line">
         {menuItems.map((m, idx) => {
           const Icon = m.icon;
+          if (m.disabled) {
+            return (
+              <div
+                key={idx}
+                className="w-full flex items-center justify-between p-3 text-xs font-bold text-slate-muted opacity-50 rounded-xl cursor-not-allowed"
+              >
+                <div className="flex items-center gap-3">
+                  <Icon className="h-4 w-4 shrink-0" />
+                  <span>{m.label}</span>
+                </div>
+                <span className="text-[9px] font-mono bg-slate-100 text-slate-muted px-1.5 py-0.5 rounded">soon</span>
+              </div>
+            );
+          }
           return (
             <button
               key={idx}
-              onClick={() => (m.path ? router.push(m.path) : m.action && m.action())}
+              onClick={() => m.path && router.push(m.path)}
               className="w-full flex items-center justify-between p-3 text-xs font-bold text-ink hover:bg-cream transition-colors rounded-xl"
             >
               <div className="flex items-center gap-3">

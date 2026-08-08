@@ -52,6 +52,7 @@ export default function AdminPaymentDetailPage() {
         <button
           onClick={() => router.push('/admin/payments')}
           className="w-9 h-9 rounded-xl border border-slate-200 flex items-center justify-center text-slate-500 hover:border-gold hover:text-gold transition-colors shrink-0"
+          aria-label="Go back"
         >
           <ArrowLeft className="h-4 w-4" />
         </button>

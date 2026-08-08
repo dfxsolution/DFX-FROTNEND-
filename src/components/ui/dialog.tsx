@@ -47,12 +47,15 @@ export function Dialog({
 
           {/* Modal Container */}
           <motion.div
+            role="dialog"
+            aria-modal="true"
+            aria-label={title}
             initial={{ opacity: 0, scale: 0.95, y: 10 }}
             animate={{ opacity: 1, scale: 1, y: 0 }}
             exit={{ opacity: 0, scale: 0.95, y: 10 }}
             transition={{ duration: 0.2, ease: "easeOut" }}
             className={cn(
-              "relative z-10 w-full rounded-3xl bg-white p-6 shadow-[0_25px_50px_-12px_rgba(11,14,35,0.2)] border border-slate-200 overflow-hidden",
+              "relative z-10 w-full rounded-3xl bg-white p-6 shadow-[0_25px_50px_-12px_rgba(11,14,35,0.2)] border border-slate-200 overflow-hidden max-h-[90vh] overflow-y-auto",
               maxWidth
             )}
           >

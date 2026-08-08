@@ -47,6 +47,7 @@ export default function MyEnrollmentsPage() {
         <button
           onClick={() => router.push('/customer/profile')}
           className="w-8 h-8 rounded-full bg-white border border-slate-line flex items-center justify-center text-slate hover:border-gold"
+          aria-label="Go back"
         >
           <ArrowLeft className="h-4 w-4" />
         </button>

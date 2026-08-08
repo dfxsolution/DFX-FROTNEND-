@@ -442,7 +442,7 @@ export default function AdminDashboardPage() {
       {/* 4. QUICK ACTIONS WITH DESCRIPTION */}
       <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
         {[
-          { title: 'Add Customer', desc: 'Register a new customer', icon: UserPlus, path: '/admin/customers' },
+          { title: 'View Customers', desc: 'Search customer directory', icon: UserPlus, path: '/admin/customers' },
           { title: 'Record Payment', desc: 'Collect installment', icon: CreditCard, path: '/admin/payments' },
           { title: 'Create Scheme', desc: 'Launch new plan', icon: Coins, path: '/admin/schemes' },
           { title: 'Book Visit', desc: 'Schedule showroom visit', icon: Calendar, path: '/admin/appointments' },
