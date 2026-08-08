@@ -96,11 +96,6 @@ export default function AdminReportsPage() {
     loadReports();
   }, []);
 
-  const handleExportPDF = () => {
-    setToastMsg("Generating Executive Financial Report PDF...");
-    setTimeout(() => setToastMsg("Executive_Financial_Report_Jul2025.pdf downloaded"), 1200);
-  };
-
   const handleExportExcel = async () => {
     setToastMsg("Exporting ledger data to Excel...");
     try {
@@ -179,8 +174,13 @@ export default function AdminReportsPage() {
           <Button onClick={handleExportExcel} variant="outline" size="sm" className="h-9">
             <FileSpreadsheet className="w-4 h-4 mr-1.5 text-emerald-600" /> Excel
           </Button>
-          <Button onClick={handleExportPDF} size="sm" className="bg-gold hover:bg-gold-dark text-white font-bold h-9">
-            <FileText className="w-4 h-4 mr-1.5" /> Export PDF
+          <Button
+            disabled
+            size="sm"
+            title="PDF export isn't available yet — use Excel export instead"
+            className="bg-gold hover:bg-gold-dark text-white font-bold h-9"
+          >
+            <FileText className="w-4 h-4 mr-1.5" /> Export PDF (Soon)
           </Button>
         </div>
       </div>

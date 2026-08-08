@@ -8,7 +8,6 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { EmptyState } from '@/components/ui/empty-state';
 import { ArrowLeft, Download, Share2, CheckCircle2, BookOpen } from 'lucide-react';
 import { formatCurrency, formatWeight } from '@/lib/formatters';
-import { Toast } from '@/components/ui/toast';
 import { passbookService, Passbook } from '@/services/passbookService';
 import { ApiError } from '@/lib/apiClient';
 
@@ -20,7 +19,6 @@ export default function PassbookPage() {
   const [passbook, setPassbook] = useState<Passbook | null>(null);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState('');
-  const [toastMsg, setToastMsg] = useState<string | null>(null);
 
   const loadPassbook = async () => {
     setLoading(true);
@@ -39,14 +37,6 @@ export default function PassbookPage() {
     loadPassbook();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [enrollmentId]);
-
-  const handleDownload = () => {
-    setToastMsg("Passbook statement downloaded");
-  };
-
-  const handleShare = () => {
-    setToastMsg("Passbook shared successfully");
-  };
 
   return (
     <div className="space-y-4 animate-in fade-in duration-300">
@@ -148,18 +138,26 @@ export default function PassbookPage() {
 
           {/* Bottom Buttons */}
           <div className="grid grid-cols-2 gap-3 pt-2">
-            <Button onClick={handleDownload} variant="outline" size="sm" className="w-full">
-              <Download className="h-4 w-4 mr-1 text-gold" /> Download
+            <Button
+              disabled
+              variant="outline"
+              size="sm"
+              className="w-full"
+              title="Statement download isn't available yet"
+            >
+              <Download className="h-4 w-4 mr-1 text-gold" /> Download (Soon)
             </Button>
-            <Button onClick={handleShare} variant="outline" size="sm" className="w-full">
-              <Share2 className="h-4 w-4 mr-1 text-gold" /> Share
+            <Button
+              disabled
+              variant="outline"
+              size="sm"
+              className="w-full"
+              title="Sharing isn't available yet"
+            >
+              <Share2 className="h-4 w-4 mr-1 text-gold" /> Share (Soon)
             </Button>
           </div>
         </>
-      )}
-
-      {toastMsg && (
-        <Toast message={toastMsg} onClose={() => setToastMsg(null)} />
       )}
     </div>
   );

@@ -19,6 +19,7 @@ import { enrollmentService, CustomerEnrollment } from '@/services/enrollmentServ
 import { passbookService, Passbook } from '@/services/passbookService';
 import { goldRateService, CustomerGoldRate } from '@/services/goldRateService';
 import { paymentService, CustomerPayment } from '@/services/paymentService';
+import { promotionService, CustomerBanner } from '@/services/promotionService';
 import { ApiError } from '@/lib/apiClient';
 
 export default function CustomerDashboardPage() {
@@ -30,6 +31,7 @@ export default function CustomerDashboardPage() {
   const [passbook, setPassbook] = useState<Passbook | null>(null);
   const [goldRate, setGoldRate] = useState<CustomerGoldRate | null>(null);
   const [pendingPayment, setPendingPayment] = useState<CustomerPayment | null>(null);
+  const [banner, setBanner] = useState<CustomerBanner | null>(null);
 
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState('');
@@ -38,14 +40,17 @@ export default function CustomerDashboardPage() {
     setLoading(true);
     setLoadError('');
     try {
-      const [profileData, enrollments, rate, payments] = await Promise.all([
+      const [profileData, enrollments, rate, payments, homeBanner] = await Promise.all([
         customerService.getProfile(),
         enrollmentService.getMyEnrollments(),
         goldRateService.getCustomerRate(),
         paymentService.getMyPayments(),
+        // Non-critical: a banner failure shouldn't break the rest of the dashboard.
+        promotionService.getHomeBanner().catch(() => null),
       ]);
       setProfile(profileData);
       setGoldRate(rate);
+      setBanner(homeBanner);
 
       // "Current scheme" = the most recently joined ACTIVE enrollment. A
       // customer can hold more than one; there's no "primary scheme" concept
@@ -180,28 +185,45 @@ export default function CustomerDashboardPage() {
         </Card>
       </div>
 
-      {/* Festival Offer Banner */}
-      <div className="bg-gradient-to-r from-ink via-ink-2 to-[#0D1226] text-white p-3.5 rounded-2xl border border-gold/30 flex items-center justify-between shadow-md">
-        <div className="flex items-center gap-3">
-          <div className="w-10 h-10 rounded-xl bg-gold/20 text-gold-light flex items-center justify-center text-xl shrink-0">
-            🎁
-          </div>
-          <div>
-            <div className="font-display font-bold text-xs text-white">
-              Festival Offer
-            </div>
-            <div className="text-[11px] text-gold-light font-medium">
-              Flat 5% Bonus on New Schemes
-            </div>
-          </div>
-        </div>
-        <button
-          onClick={() => router.push('/customer/schemes')}
-          className="px-2.5 py-1 bg-gold text-ink text-[11px] font-bold rounded-lg hover:brightness-105"
+      {/* Promotion Banner — driven by GET /customer/home-banner, renders nothing if none is active */}
+      {banner && (
+        <div
+          className="bg-gradient-to-r from-ink via-ink-2 to-[#0D1226] text-white p-3.5 rounded-2xl border border-gold/30 flex items-center justify-between shadow-md"
+          style={
+            banner.backgroundColor
+              ? { background: banner.backgroundColor, color: banner.textColor || undefined }
+              : undefined
+          }
         >
-          View Offer
-        </button>
-      </div>
+          <div className="flex items-center gap-3 min-w-0">
+            <div className="w-10 h-10 rounded-xl bg-gold/20 text-gold-light flex items-center justify-center text-xl shrink-0">
+              🎁
+            </div>
+            <div className="min-w-0">
+              <div className="font-display font-bold text-xs text-white truncate">
+                {banner.title}
+              </div>
+              {banner.subtitle && (
+                <div className="text-[11px] text-gold-light font-medium truncate">
+                  {banner.subtitle}
+                </div>
+              )}
+            </div>
+          </div>
+          {banner.buttonText && (
+            <button
+              onClick={() => {
+                const link = banner.buttonLink || '/customer/schemes';
+                if (link.startsWith('/')) router.push(link);
+                else window.location.href = link;
+              }}
+              className="px-2.5 py-1 bg-gold text-ink text-[11px] font-bold rounded-lg hover:brightness-105 shrink-0"
+            >
+              {banner.buttonText}
+            </button>
+          )}
+        </div>
+      )}
 
       {/* Quick Actions (4 Grid) */}
       <div>
