@@ -21,6 +21,7 @@ import {
   UserCheck,
   ShieldCheck,
   Settings,
+  LifeBuoy,
   ChevronLeft,
   ChevronRight,
 } from 'lucide-react';
@@ -42,6 +43,7 @@ const iconMap: Record<string, React.ElementType> = {
   UserCheck,
   ShieldCheck,
   Settings,
+  LifeBuoy,
 };
 
 export const AdminSidebar: React.FC = () => {

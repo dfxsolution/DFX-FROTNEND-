@@ -23,7 +23,7 @@ export default function SuperAdminIntegrationsPage() {
         <ComingSoonPlaceholder
           icon={<Plug className="w-7 h-7" />}
           title="Integrations Coming Soon"
-          description="Third-party integration monitoring and a support-ticket system aren't available yet — no backend for either exists. This feature will be available in a future release."
+          description="Third-party API/webhook monitoring isn't available yet — no integrations backend exists. (Support tickets are handled per-tenant by each store's own Admin, under Support — not a platform-wide integration.)"
         />
       </div>
     </div>

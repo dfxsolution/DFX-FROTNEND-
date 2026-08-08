@@ -96,6 +96,71 @@ function mapTenantProfile(raw: BackendTenantProfile): TenantProfile {
   };
 }
 
+/** Shape of an item in the paginated GET /admin/customers list. */
+interface BackendAdminCustomerListItem {
+  id: string;
+  name: string;
+  email: string | null;
+  phone: string | null;
+  kyc_status: string;
+  member_since: string | null;
+  is_active: boolean;
+}
+
+export interface AdminCustomerListItem {
+  id: string;
+  name: string;
+  email: string;
+  phone: string;
+  kycStatus: string;
+  memberSince: string;
+  isActive: boolean;
+}
+
+function mapAdminCustomerListItem(raw: BackendAdminCustomerListItem): AdminCustomerListItem {
+  return {
+    id: raw.id,
+    name: raw.name,
+    email: raw.email ?? '',
+    phone: raw.phone ?? '',
+    kycStatus: raw.kyc_status,
+    memberSince: raw.member_since ?? '',
+    isActive: raw.is_active,
+  };
+}
+
+interface BackendAdminCustomerDetail extends BackendAdminCustomerListItem {
+  avatar_url: string | null;
+  enrollment_count: number;
+  total_invested: number;
+}
+
+export interface AdminCustomerDetail extends AdminCustomerListItem {
+  avatarUrl: string | null;
+  enrollmentCount: number;
+  totalInvested: number;
+}
+
+function mapAdminCustomerDetail(raw: BackendAdminCustomerDetail): AdminCustomerDetail {
+  return {
+    ...mapAdminCustomerListItem(raw),
+    avatarUrl: raw.avatar_url,
+    enrollmentCount: raw.enrollment_count,
+    totalInvested: raw.total_invested,
+  };
+}
+
+export interface AdminCustomerPagination {
+  page: number;
+  pageSize: number;
+  totalItems: number;
+  totalPages: number;
+}
+
+function mapAdminCustomerPagination(raw: { page: number; page_size: number; total_items: number; total_pages: number }): AdminCustomerPagination {
+  return { page: raw.page, pageSize: raw.page_size, totalItems: raw.total_items, totalPages: raw.total_pages };
+}
+
 export type AddressType = 'Home' | 'Work' | 'Other';
 
 /** Shape of an `address` object returned by the FastAPI backend. */
@@ -416,5 +481,53 @@ export const customerService = {
   async getBranches(): Promise<Branch[]> {
     const res = await apiClient.get<{ branches: BackendBranch[] }>('/customer/branches', { auth: true });
     return res.data.branches.map(mapBranch);
+  },
+
+  /** GET /api/v1/admin/customers */
+  async getAdminCustomers(
+    page: number,
+    limit: number,
+    search?: string
+  ): Promise<{ customers: AdminCustomerListItem[]; pagination: AdminCustomerPagination }> {
+    const params = new URLSearchParams({ page: String(page), limit: String(limit) });
+    if (search) params.set('search', search);
+    const res = await apiClient.get<{ customers: BackendAdminCustomerListItem[] }>(
+      `/admin/customers?${params.toString()}`,
+      { auth: true }
+    );
+    return {
+      customers: res.data.customers.map(mapAdminCustomerListItem),
+      pagination: mapAdminCustomerPagination(res.meta.pagination),
+    };
+  },
+
+  /** GET /api/v1/admin/customers/{id} */
+  async getAdminCustomerDetail(id: string): Promise<AdminCustomerDetail> {
+    const res = await apiClient.get<{ customer: BackendAdminCustomerDetail }>(`/admin/customers/${id}`, { auth: true });
+    return mapAdminCustomerDetail(res.data.customer);
+  },
+
+  /** GET /api/v1/admin/branches — includes inactive branches, unlike getBranches(). */
+  async getAdminBranches(): Promise<Branch[]> {
+    const res = await apiClient.get<{ branches: BackendBranch[] }>('/admin/branches', { auth: true });
+    return res.data.branches.map(mapBranch);
+  },
+
+  /** POST /api/v1/admin/branches */
+  async createBranch(data: { name: string; address: string; phone: string; latitude: number; longitude: number }): Promise<Branch> {
+    const res = await apiClient.post<{ branch: BackendBranch }>('/admin/branches', data, { auth: true });
+    return mapBranch(res.data.branch);
+  },
+
+  /** PUT /api/v1/admin/branches/{id} */
+  async updateBranch(id: string, data: Partial<{ name: string; address: string; phone: string; latitude: number; longitude: number }>): Promise<Branch> {
+    const res = await apiClient.put<{ branch: BackendBranch }>(`/admin/branches/${id}`, data, { auth: true });
+    return mapBranch(res.data.branch);
+  },
+
+  /** PUT /api/v1/admin/branches/{id}/status */
+  async setBranchStatus(id: string, isActive: boolean): Promise<Branch> {
+    const res = await apiClient.put<{ branch: BackendBranch }>(`/admin/branches/${id}/status`, { is_active: isActive }, { auth: true });
+    return mapBranch(res.data.branch);
   },
 };

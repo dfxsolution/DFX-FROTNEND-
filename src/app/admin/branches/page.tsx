@@ -4,6 +4,9 @@ import React, { useEffect, useState } from 'react';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
+import { Input } from '@/components/ui/input';
+import { Dialog } from '@/components/ui/dialog';
+import { Switch } from '@/components/ui/form-controls';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Toast } from '@/components/ui/toast';
 import { EmptyState } from '@/components/ui/empty-state';
@@ -12,11 +15,23 @@ import {
   Store,
   MapPin,
   Phone,
-  UserCheck,
+  Pencil,
   Plus,
 } from 'lucide-react';
 import { customerService, Branch } from '@/services/customerService';
 import { ApiError } from '@/lib/apiClient';
+
+interface BranchFormState {
+  name: string;
+  address: string;
+  phone: string;
+  latitude: string;
+  longitude: string;
+}
+
+const EMPTY_FORM: BranchFormState = { name: '', address: '', phone: '', latitude: '', longitude: '' };
+
+type FieldErrors = Partial<Record<keyof BranchFormState, string>>;
 
 export default function AdminBranchesPage() {
   const [branches, setBranches] = useState<Branch[]>([]);
@@ -24,11 +39,19 @@ export default function AdminBranchesPage() {
   const [loadError, setLoadError] = useState('');
   const [toastMsg, setToastMsg] = useState<string | null>(null);
 
+  const [dialogOpen, setDialogOpen] = useState(false);
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [form, setForm] = useState<BranchFormState>(EMPTY_FORM);
+  const [fieldErrors, setFieldErrors] = useState<FieldErrors>({});
+  const [formError, setFormError] = useState('');
+  const [saving, setSaving] = useState(false);
+  const [togglingId, setTogglingId] = useState<string | null>(null);
+
   const loadBranches = async () => {
     setLoading(true);
     setLoadError('');
     try {
-      const data = await customerService.getBranches();
+      const data = await customerService.getAdminBranches();
       setBranches(data);
     } catch (err) {
       setLoadError(err instanceof ApiError ? err.message : 'Could not load branches.');
@@ -41,11 +64,87 @@ export default function AdminBranchesPage() {
     loadBranches();
   }, []);
 
-  // No branch-management backend exists yet (create/edit/staff-roster/per-branch
-  // sales) — only the read-only branch list is real (reused from the
-  // customer-facing branch locator endpoint). These actions are honestly
-  // unavailable rather than faked. See SESSION_HANDOFF.md Module 17.
-  const notYetAvailable = () => setToastMsg('Branch management actions are not available yet.');
+  const openCreateDialog = () => {
+    setEditingId(null);
+    setForm(EMPTY_FORM);
+    setFieldErrors({});
+    setFormError('');
+    setDialogOpen(true);
+  };
+
+  const openEditDialog = (b: Branch) => {
+    setEditingId(b.id);
+    setForm({
+      name: b.name,
+      address: b.address,
+      phone: b.phone,
+      latitude: String(b.latitude),
+      longitude: String(b.longitude),
+    });
+    setFieldErrors({});
+    setFormError('');
+    setDialogOpen(true);
+  };
+
+  const applyApiError = (err: unknown, fallback: string) => {
+    if (err instanceof ApiError && err.errors.length > 0) {
+      const next: FieldErrors = {};
+      let banner = '';
+      const fieldMap: Record<string, keyof BranchFormState> = {
+        name: 'name', address: 'address', phone: 'phone', latitude: 'latitude', longitude: 'longitude',
+      };
+      for (const e of err.errors) {
+        const field = e.field ? fieldMap[e.field] : undefined;
+        if (field) next[field] = e.message ?? '';
+        else banner = e.message ?? '';
+      }
+      setFieldErrors(next);
+      setFormError(banner || (Object.keys(next).length === 0 ? err.message : fallback));
+    } else {
+      setFormError(err instanceof ApiError ? err.message : fallback);
+    }
+  };
+
+  const handleSave = async () => {
+    setFormError('');
+    setFieldErrors({});
+    setSaving(true);
+    const lat = parseFloat(form.latitude);
+    const lng = parseFloat(form.longitude);
+    if (Number.isNaN(lat) || Number.isNaN(lng)) {
+      setFieldErrors({ latitude: Number.isNaN(lat) ? 'Enter a valid latitude' : undefined, longitude: Number.isNaN(lng) ? 'Enter a valid longitude' : undefined });
+      setSaving(false);
+      return;
+    }
+    try {
+      if (editingId) {
+        await customerService.updateBranch(editingId, { name: form.name, address: form.address, phone: form.phone, latitude: lat, longitude: lng });
+        setToastMsg('Branch updated.');
+      } else {
+        await customerService.createBranch({ name: form.name, address: form.address, phone: form.phone, latitude: lat, longitude: lng });
+        setToastMsg('Branch created.');
+      }
+      setDialogOpen(false);
+      await loadBranches();
+    } catch (err) {
+      applyApiError(err, editingId ? 'Could not update branch.' : 'Could not create branch.');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleToggleActive = async (b: Branch) => {
+    setTogglingId(b.id);
+    try {
+      await customerService.setBranchStatus(b.id, !b.isActive);
+      await loadBranches();
+      setToastMsg(`${b.name} ${b.isActive ? 'deactivated' : 'reactivated'}.`);
+    } catch (err) {
+      setToastMsg(err instanceof ApiError ? err.message : 'Could not update branch status.');
+    } finally {
+      setTogglingId(null);
+    }
+  };
 
   return (
     <div className="space-y-6 animate-in fade-in duration-300 font-body">
@@ -56,11 +155,11 @@ export default function AdminBranchesPage() {
             Multi-Branch Store Management
           </h1>
           <p className="text-xs text-slate-500 mt-0.5 font-medium">
-            Manage jewellery store locations, branch managers, daily sales KPIs, and staff assignments.
+            Register and manage your jewellery store locations. Per-branch staff rosters and sales KPIs aren&apos;t modeled in the backend yet.
           </p>
         </div>
 
-        <Button onClick={notYetAvailable} size="sm" className="bg-gold hover:bg-gold-dark text-white font-bold h-9 transition-all duration-200">
+        <Button onClick={openCreateDialog} size="sm" className="bg-gold hover:bg-gold-dark text-white font-bold h-9 transition-all duration-200">
           <Plus className="w-4 h-4 mr-1.5" /> Register New Branch
         </Button>
       </div>
@@ -78,7 +177,9 @@ export default function AdminBranchesPage() {
         <EmptyState
           icon={<Store className="h-7 w-7 text-gold" />}
           title="No branches yet"
-          description="No store branches have been added for your tenant yet."
+          description="Register your first store branch to get started."
+          actionLabel="Register New Branch"
+          onAction={openCreateDialog}
         />
       )}
 
@@ -134,20 +235,106 @@ export default function AdminBranchesPage() {
                 </div>
               </div>
 
-              <div className="flex gap-2">
+              <div className="flex items-center gap-2">
                 <Button
-                  onClick={notYetAvailable}
+                  onClick={() => openEditDialog(b)}
                   variant="outline"
                   size="sm"
                   className="flex-1 text-xs font-bold border-slate-200 transition-all duration-200"
                 >
-                  <UserCheck className="w-3.5 h-3.5 mr-1" /> Manage Branch
+                  <Pencil className="w-3.5 h-3.5 mr-1" /> Edit Branch
                 </Button>
+                <Switch
+                  checked={b.isActive}
+                  onChange={() => handleToggleActive(b)}
+                  disabled={togglingId === b.id}
+                />
               </div>
             </Card>
           ))}
         </div>
       )}
+
+      {/* CREATE / EDIT BRANCH DIALOG */}
+      <Dialog
+        isOpen={dialogOpen}
+        onClose={() => !saving && setDialogOpen(false)}
+        title={editingId ? 'Edit Branch' : 'Register New Branch'}
+        maxWidth="max-w-md"
+      >
+        <div className="space-y-3.5 text-xs">
+          {formError && (
+            <div role="alert" className="text-xs font-medium text-red-700 bg-red-50 border border-red-200 rounded-lg px-3 py-2">
+              {formError}
+            </div>
+          )}
+
+          <div className="space-y-1">
+            <label className="font-bold text-slate-500 uppercase text-[10px]">Branch Name *</label>
+            <Input
+              error={!!fieldErrors.name}
+              value={form.name}
+              onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))}
+              placeholder="e.g. MG Road Showroom"
+            />
+            {fieldErrors.name && <p className="text-[11px] text-red-600 font-medium">{fieldErrors.name}</p>}
+          </div>
+
+          <div className="space-y-1">
+            <label className="font-bold text-slate-500 uppercase text-[10px]">Address *</label>
+            <Input
+              error={!!fieldErrors.address}
+              value={form.address}
+              onChange={(e) => setForm((f) => ({ ...f, address: e.target.value }))}
+              placeholder="Full store address"
+            />
+            {fieldErrors.address && <p className="text-[11px] text-red-600 font-medium">{fieldErrors.address}</p>}
+          </div>
+
+          <div className="space-y-1">
+            <label className="font-bold text-slate-500 uppercase text-[10px]">Phone *</label>
+            <Input
+              error={!!fieldErrors.phone}
+              value={form.phone}
+              onChange={(e) => setForm((f) => ({ ...f, phone: e.target.value }))}
+              placeholder="10-digit store phone"
+            />
+            {fieldErrors.phone && <p className="text-[11px] text-red-600 font-medium">{fieldErrors.phone}</p>}
+          </div>
+
+          <div className="grid grid-cols-2 gap-2">
+            <div className="space-y-1">
+              <label className="font-bold text-slate-500 uppercase text-[10px]">Latitude *</label>
+              <Input
+                error={!!fieldErrors.latitude}
+                value={form.latitude}
+                onChange={(e) => setForm((f) => ({ ...f, latitude: e.target.value }))}
+                placeholder="12.9716"
+              />
+              {fieldErrors.latitude && <p className="text-[11px] text-red-600 font-medium">{fieldErrors.latitude}</p>}
+            </div>
+            <div className="space-y-1">
+              <label className="font-bold text-slate-500 uppercase text-[10px]">Longitude *</label>
+              <Input
+                error={!!fieldErrors.longitude}
+                value={form.longitude}
+                onChange={(e) => setForm((f) => ({ ...f, longitude: e.target.value }))}
+                placeholder="77.5946"
+              />
+              {fieldErrors.longitude && <p className="text-[11px] text-red-600 font-medium">{fieldErrors.longitude}</p>}
+            </div>
+          </div>
+
+          <div className="flex justify-end gap-2 pt-2">
+            <Button variant="outline" size="sm" onClick={() => setDialogOpen(false)} disabled={saving}>
+              Cancel
+            </Button>
+            <Button size="sm" className="bg-gold hover:bg-gold-dark text-white font-bold" onClick={handleSave} disabled={saving}>
+              {saving ? 'Saving…' : editingId ? 'Save Changes' : 'Create Branch'}
+            </Button>
+          </div>
+        </div>
+      </Dialog>
 
       {toastMsg && <Toast message={toastMsg} onClose={() => setToastMsg(null)} />}
     </div>

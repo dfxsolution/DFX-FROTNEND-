@@ -56,6 +56,7 @@ export const ADMIN_NAV_ITEMS = [
   { key: 'analytics', icon: 'BarChart3', label: 'Analytics', path: '/admin/analytics', ready: true },
   { key: 'branches', icon: 'Store', label: 'Branches', path: '/admin/branches', ready: true },
   { key: 'users', icon: 'UserCheck', label: 'Staff Users', path: '/admin/users', ready: true },
+  { key: 'support', icon: 'LifeBuoy', label: 'Support', path: '/admin/support', ready: true },
   { key: 'settings', icon: 'Settings', label: 'Settings', path: '/admin/settings', ready: true },
 ];
 
