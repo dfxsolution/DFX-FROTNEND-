@@ -1,19 +1,22 @@
 "use client";
 
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { Plus, Package, ImageOff, Wand2, Trash2 } from 'lucide-react';
+import { Plus, Package, ImageOff, Wand2, Trash2, ImagePlus, X } from 'lucide-react';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
+import { Textarea } from '@/components/ui/form-controls';
 import { Skeleton } from '@/components/ui/skeleton';
 import { EmptyState } from '@/components/ui/empty-state';
 import { ErrorState } from '@/components/shared/ErrorState';
 import { Dialog, DialogFooter } from '@/components/ui/dialog';
 import { Toast } from '@/components/ui/toast';
-import { catalogueService, Product } from '@/services/catalogueService';
+import { catalogueService, Product, ProductFormData } from '@/services/catalogueService';
 import { ApiError } from '@/lib/apiClient';
+
+const EMPTY_QUICK_FORM: ProductFormData = { name: '', price: null, category: '', purity: '', description: '' };
 
 /**
  * Catalogue Studio — Product Studio redesign. This page is now just the
@@ -34,6 +37,16 @@ export default function CatalogueStudioPage() {
   const [deleteTarget, setDeleteTarget] = useState<Product | null>(null);
   const [deleting, setDeleting] = useState(false);
   const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' } | null>(null);
+
+  // Quick Add — the fast path: name, price, basic details, one image, save, done.
+  // Advanced editing (multi-image, AI enhancement, templates) stays in Product Studio.
+  const [quickAddOpen, setQuickAddOpen] = useState(false);
+  const [quickForm, setQuickForm] = useState<ProductFormData>(EMPTY_QUICK_FORM);
+  const [quickImage, setQuickImage] = useState<File | null>(null);
+  const [quickImagePreview, setQuickImagePreview] = useState<string | null>(null);
+  const [quickError, setQuickError] = useState('');
+  const [quickSaving, setQuickSaving] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   const loadProducts = async () => {
     setLoading(true);
@@ -69,6 +82,52 @@ export default function CatalogueStudioPage() {
     }
   };
 
+  const openQuickAdd = () => {
+    setQuickForm(EMPTY_QUICK_FORM);
+    setQuickImage(null);
+    setQuickImagePreview(null);
+    setQuickError('');
+    setQuickAddOpen(true);
+  };
+
+  const handlePickImage = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setQuickImage(file);
+    setQuickImagePreview(URL.createObjectURL(file));
+  };
+
+  const handleQuickSave = async () => {
+    setQuickError('');
+    if (!quickForm.name.trim()) {
+      setQuickError('Product name is required.');
+      return;
+    }
+    setQuickSaving(true);
+    try {
+      const created = await catalogueService.createProduct(quickForm);
+      if (quickImage) {
+        try {
+          await catalogueService.uploadImage(created.id, quickImage);
+        } catch {
+          // Product itself saved fine — surface the image failure honestly
+          // rather than claiming full success.
+          setToast({ message: `"${created.name}" saved, but the image failed to upload. Open it in Product Studio to retry.`, type: 'error' });
+          setQuickAddOpen(false);
+          await loadProducts();
+          return;
+        }
+      }
+      setQuickAddOpen(false);
+      setToast({ message: `"${created.name}" added to your catalogue.`, type: 'success' });
+      await loadProducts();
+    } catch (err) {
+      setQuickError(err instanceof ApiError ? err.message : 'Could not save product.');
+    } finally {
+      setQuickSaving(false);
+    }
+  };
+
   const filtered = products.filter(
     (p) =>
       !search.trim() ||
@@ -91,13 +150,19 @@ export default function CatalogueStudioPage() {
             </span>
           </div>
           <p className="text-xs text-slate-500 mt-0.5 font-medium">
-            One guided flow per product — details, images, editing, templates, preview, and publish.
+            Add a product in seconds, or open Product Studio for images, editing, and templates.
           </p>
         </div>
-        <Button onClick={() => router.push('/admin/catalogue/studio/new')} className="gap-1.5 shrink-0">
-          <Wand2 className="w-4 h-4" />
-          <span>New Product</span>
-        </Button>
+        <div className="flex items-center gap-2 shrink-0">
+          <Button variant="outline" size="sm" onClick={() => router.push('/admin/catalogue/studio/new')} className="gap-1.5">
+            <Wand2 className="w-4 h-4" />
+            <span>Product Studio</span>
+          </Button>
+          <Button onClick={openQuickAdd} className="gap-1.5">
+            <Plus className="w-4 h-4" />
+            <span>New Product</span>
+          </Button>
+        </div>
       </div>
 
       {/* SEARCH */}
@@ -123,9 +188,9 @@ export default function CatalogueStudioPage() {
           <EmptyState
             icon={<Package className="h-7 w-7 text-gold" />}
             title="No products yet"
-            description="Start the guided Product Studio to add your first jewellery product."
+            description="Add your first jewellery product — name, price, and a photo is all you need to start."
             actionLabel="New Product"
-            onAction={() => router.push('/admin/catalogue/studio/new')}
+            onAction={openQuickAdd}
           />
         </Card>
       )}
@@ -187,6 +252,106 @@ export default function CatalogueStudioPage() {
           )}
         </div>
       )}
+
+      {/* QUICK ADD — the simple path: details, one image, save, done. */}
+      <Dialog
+        isOpen={quickAddOpen}
+        onClose={() => !quickSaving && setQuickAddOpen(false)}
+        title="New Product"
+        maxWidth="max-w-lg"
+      >
+        <div className="space-y-3.5 text-xs max-h-[70vh] overflow-y-auto pr-1">
+          {quickError && (
+            <div role="alert" className="text-xs font-medium text-red-700 bg-red-50 border border-red-200 rounded-lg px-3 py-2">
+              {quickError}
+            </div>
+          )}
+
+          {/* Image picker — the whole point is one photo, not a gallery. */}
+          <div className="space-y-1">
+            <label className="font-bold text-slate-500 uppercase text-[10px]">Photo</label>
+            <input ref={fileInputRef} type="file" accept="image/jpeg,image/png,image/webp" onChange={handlePickImage} className="hidden" />
+            {quickImagePreview ? (
+              <div className="relative aspect-square w-32 rounded-2xl border border-slate-200 bg-slate-50 overflow-hidden">
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img src={quickImagePreview} alt="Selected product" className="w-full h-full object-contain p-2" />
+                <button
+                  onClick={() => { setQuickImage(null); setQuickImagePreview(null); if (fileInputRef.current) fileInputRef.current.value = ''; }}
+                  aria-label="Remove selected photo"
+                  className="absolute top-1.5 right-1.5 flex items-center justify-center h-6 w-6 rounded-lg bg-white/95 text-slate-500 border border-slate-200 hover:text-red-600 hover:border-red-200 shadow-sm"
+                >
+                  <X className="h-3.5 w-3.5" />
+                </button>
+              </div>
+            ) : (
+              <button
+                onClick={() => fileInputRef.current?.click()}
+                className="flex flex-col items-center justify-center gap-1.5 aspect-square w-32 rounded-2xl border-2 border-dashed border-slate-200 text-slate-400 hover:border-gold/50 hover:text-gold-dark transition-colors"
+              >
+                <ImagePlus className="w-5 h-5" />
+                <span className="text-[10px] font-bold">Add photo</span>
+              </button>
+            )}
+          </div>
+
+          <div className="space-y-1">
+            <label className="font-bold text-slate-500 uppercase text-[10px]">Product Name *</label>
+            <Input
+              value={quickForm.name}
+              onChange={(e) => setQuickForm((f) => ({ ...f, name: e.target.value }))}
+              placeholder="e.g. Gold Necklace — Temple Design"
+              autoFocus
+            />
+          </div>
+
+          <div className="grid grid-cols-2 gap-3">
+            <div className="space-y-1">
+              <label className="font-bold text-slate-500 uppercase text-[10px]">Price (₹)</label>
+              <Input
+                type="number"
+                min="0"
+                value={quickForm.price ?? ''}
+                onChange={(e) => setQuickForm((f) => ({ ...f, price: e.target.value ? Number(e.target.value) : null }))}
+                placeholder="45000"
+              />
+            </div>
+            <div className="space-y-1">
+              <label className="font-bold text-slate-500 uppercase text-[10px]">Purity</label>
+              <Input
+                value={quickForm.purity}
+                onChange={(e) => setQuickForm((f) => ({ ...f, purity: e.target.value }))}
+                placeholder="e.g. 22K"
+              />
+            </div>
+          </div>
+
+          <div className="space-y-1">
+            <label className="font-bold text-slate-500 uppercase text-[10px]">Category</label>
+            <Input
+              value={quickForm.category}
+              onChange={(e) => setQuickForm((f) => ({ ...f, category: e.target.value }))}
+              placeholder="e.g. Necklace, Ring, Bangle"
+            />
+          </div>
+
+          <div className="space-y-1">
+            <label className="font-bold text-slate-500 uppercase text-[10px]">Details</label>
+            <Textarea
+              value={quickForm.description}
+              onChange={(e) => setQuickForm((f) => ({ ...f, description: e.target.value }))}
+              placeholder="Optional — craftsmanship, occasion, weight, etc."
+            />
+          </div>
+        </div>
+        <DialogFooter>
+          <Button variant="outline" size="sm" onClick={() => setQuickAddOpen(false)} disabled={quickSaving}>
+            Cancel
+          </Button>
+          <Button size="sm" isLoading={quickSaving} onClick={handleQuickSave}>
+            Save Product
+          </Button>
+        </DialogFooter>
+      </Dialog>
 
       {/* Delete confirmation */}
       <Dialog
