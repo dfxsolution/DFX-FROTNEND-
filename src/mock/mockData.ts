@@ -13,9 +13,11 @@ export const MOCK_USERS: Record<string, User> = {
     phone: '98765 43210',
     email: 'mohammed@example.com',
     role: 'customer',
+    backendRole: 'Customer',
     tenantId: 'tnt_gp_01',
     kycStatus: 'Verified',
     memberSince: 'Jan 2024',
+    permissions: [],
   },
   admin: {
     id: 'usr_adm_01',
@@ -23,9 +25,11 @@ export const MOCK_USERS: Record<string, User> = {
     phone: '98765 00001',
     email: 'kumar@goldpalace.com',
     role: 'admin',
+    backendRole: 'Admin',
     tenantId: 'tnt_gp_01',
     kycStatus: 'Verified',
     memberSince: 'Aug 2022',
+    permissions: [],
   },
   superadmin: {
     id: 'usr_sa_01',
@@ -33,8 +37,10 @@ export const MOCK_USERS: Record<string, User> = {
     phone: '90000 00000',
     email: 'sa@jros.app',
     role: 'superadmin',
+    backendRole: 'SuperAdmin',
     kycStatus: 'Verified',
     memberSince: 'Jan 2022',
+    permissions: [],
   },
 };
 

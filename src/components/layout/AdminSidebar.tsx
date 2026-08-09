@@ -5,6 +5,7 @@ import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { ADMIN_NAV_ITEMS } from '@/constants';
 import { useTenant } from '@/hooks/useTenant';
+import { useAuth } from '@/hooks/useAuth';
 import {
   LayoutDashboard,
   Users,
@@ -49,7 +50,16 @@ const iconMap: Record<string, React.ElementType> = {
 export const AdminSidebar: React.FC = () => {
   const pathname = usePathname();
   const { branding } = useTenant();
+  const { user } = useAuth();
   const [collapsed, setCollapsed] = useState(false);
+
+  // Staff only sees modules explicitly granted to their account — Admin/
+  // SuperAdmin (and the Customer role, which never reaches this sidebar)
+  // always see everything, matching the backend's require_admin_or_staff_module.
+  const isStaff = user?.backendRole === 'Staff';
+  const visibleItems = isStaff
+    ? ADMIN_NAV_ITEMS.filter((item) => item.staffModule && user!.permissions.includes(item.staffModule))
+    : ADMIN_NAV_ITEMS;
 
   return (
     <aside className={cn(
@@ -78,7 +88,7 @@ export const AdminSidebar: React.FC = () => {
             Management
           </div>
         )}
-        {ADMIN_NAV_ITEMS.map((item) => {
+        {visibleItems.map((item) => {
           const Icon = iconMap[item.icon] || LayoutDashboard;
           const isActive =
             item.path === '/admin'

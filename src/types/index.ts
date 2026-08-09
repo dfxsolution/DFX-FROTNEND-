@@ -6,10 +6,14 @@ export interface User {
   phone: string;
   email?: string;
   role: UserRole;
+  /** Raw backend role name ('Admin' | 'Staff' | 'Customer' | 'SuperAdmin') — 'admin' workspace role covers both Admin and Staff, this distinguishes them for permission gating. */
+  backendRole: string;
   tenantId?: string;
   kycStatus: 'Verified' | 'Pending' | 'Rejected';
   memberSince: string;
   avatarUrl?: string;
+  /** Staff-only granted module keys (see staffService.ts's STAFF_MODULES). Always empty for non-Staff roles — Admin/SuperAdmin are never gated by this. */
+  permissions: string[];
 }
 
 export interface TenantBranding {

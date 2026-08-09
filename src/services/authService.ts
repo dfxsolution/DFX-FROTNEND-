@@ -26,6 +26,7 @@ interface BackendUser {
   kyc_status: string;
   member_since: string | null;
   is_active: boolean;
+  permissions: string[];
 }
 
 interface TokenPayload {
@@ -59,9 +60,11 @@ function mapBackendUser(raw: BackendUser): User {
     phone: raw.phone ?? '',
     email: raw.email ?? undefined,
     role: ROLE_MAP[raw.role] ?? 'customer',
+    backendRole: raw.role,
     tenantId: raw.tenant_id ?? undefined,
     kycStatus,
     memberSince: raw.member_since ?? '',
+    permissions: raw.permissions ?? [],
   };
 }
 

@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useEffect, useState } from 'react';
-import { staffService, Staff, StaffCreateData } from '@/services/staffService';
+import { staffService, Staff, StaffCreateData, STAFF_MODULES } from '@/services/staffService';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -11,12 +11,36 @@ import { Switch } from '@/components/ui/form-controls';
 import { Toast } from '@/components/ui/toast';
 import { Skeleton } from '@/components/ui/skeleton';
 import { EmptyState } from '@/components/ui/empty-state';
-import { Plus, UserCheck } from 'lucide-react';
+import { Plus, UserCheck, ShieldCheck, Pencil } from 'lucide-react';
 import { ApiError } from '@/lib/apiClient';
 
-const EMPTY_FORM: StaffCreateData = { name: '', email: '', phone: '', password: '' };
+const EMPTY_FORM: StaffCreateData = { name: '', email: '', phone: '', password: '', permissions: [] };
 
 type FieldErrors = Partial<Record<keyof StaffCreateData, string>>;
+
+function PermissionSelector({ selected, onChange }: { selected: string[]; onChange: (next: string[]) => void }) {
+  const toggle = (key: string) => {
+    onChange(selected.includes(key) ? selected.filter((k) => k !== key) : [...selected, key]);
+  };
+  return (
+    <div className="grid grid-cols-2 gap-1.5">
+      {STAFF_MODULES.map((m) => (
+        <label
+          key={m.key}
+          className="flex items-center gap-2 text-xs font-medium text-slate-700 px-2.5 py-1.5 rounded-lg border border-slate-200 hover:border-gold/50 cursor-pointer transition-colors"
+        >
+          <input
+            type="checkbox"
+            checked={selected.includes(m.key)}
+            onChange={() => toggle(m.key)}
+            className="w-3.5 h-3.5 rounded border-slate-300 text-gold focus:ring-gold/30 accent-gold"
+          />
+          {m.label}
+        </label>
+      ))}
+    </div>
+  );
+}
 
 export default function AdminUsersPage() {
   const [staff, setStaff] = useState<Staff[]>([]);
@@ -28,6 +52,10 @@ export default function AdminUsersPage() {
   const [fieldErrors, setFieldErrors] = useState<FieldErrors>({});
   const [formError, setFormError] = useState('');
   const [saving, setSaving] = useState(false);
+
+  const [permTarget, setPermTarget] = useState<Staff | null>(null);
+  const [permSelection, setPermSelection] = useState<string[]>([]);
+  const [savingPerms, setSavingPerms] = useState(false);
 
   const [togglingId, setTogglingId] = useState<string | null>(null);
   const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' } | null>(null);
@@ -100,6 +128,28 @@ export default function AdminUsersPage() {
     }
   };
 
+  const openPermissionsDialog = (member: Staff) => {
+    setPermTarget(member);
+    setPermSelection(member.permissions);
+  };
+
+  const handleSavePermissions = async () => {
+    if (!permTarget) return;
+    setSavingPerms(true);
+    try {
+      await staffService.setStaffPermissions(permTarget.id, permSelection);
+      setPermTarget(null);
+      await loadStaff();
+      setToast({ message: `Access updated for ${permTarget.name}.`, type: 'success' });
+    } catch (err) {
+      setToast({ message: err instanceof ApiError ? err.message : 'Could not update permissions.', type: 'error' });
+    } finally {
+      setSavingPerms(false);
+    }
+  };
+
+  const permissionLabel = (key: string) => STAFF_MODULES.find((m) => m.key === key)?.label ?? key;
+
   return (
     <div className="space-y-6 animate-in fade-in duration-300 font-body">
       {/* PAGE HEADER */}
@@ -109,7 +159,7 @@ export default function AdminUsersPage() {
             Staff User Management
           </h1>
           <p className="text-xs text-slate-500 mt-0.5 font-medium">
-            Invite store staff and manage their account access. Branch-level access permissions aren&apos;t modeled in the backend yet.
+            Invite store staff and control exactly which sections of the Admin panel each one can access.
           </p>
         </div>
 
@@ -147,9 +197,10 @@ export default function AdminUsersPage() {
                 <tr className="bg-slate-50 border-b border-slate-200 text-slate-500 font-bold uppercase text-[10px] tracking-wider">
                   <th className="p-4">Name</th>
                   <th className="p-4">Contact</th>
-                  <th className="p-4">Member Since</th>
+                  <th className="p-4">Access</th>
                   <th className="p-4 text-center">Status</th>
                   <th className="p-4 text-center">Active</th>
+                  <th className="p-4 text-center">Edit</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100 font-medium text-slate-700">
@@ -165,7 +216,19 @@ export default function AdminUsersPage() {
                       <div>{s.email || '—'}</div>
                       <div>{s.phone || '—'}</div>
                     </td>
-                    <td className="p-4 text-[11px] text-slate-500">{s.memberSince || '—'}</td>
+                    <td className="p-4">
+                      {s.permissions.length === 0 ? (
+                        <span className="text-[11px] text-slate-400 italic">No access granted</span>
+                      ) : (
+                        <div className="flex flex-wrap gap-1 max-w-xs">
+                          {s.permissions.map((p) => (
+                            <span key={p} className="text-[9px] font-bold uppercase tracking-wide bg-slate-100 text-slate-600 px-1.5 py-0.5 rounded">
+                              {permissionLabel(p)}
+                            </span>
+                          ))}
+                        </div>
+                      )}
+                    </td>
                     <td className="p-4 text-center">
                       <Badge variant={s.isActive ? 'success' : 'danger'} dot className="text-[10px]">
                         {s.isActive ? 'Active' : 'Inactive'}
@@ -177,6 +240,16 @@ export default function AdminUsersPage() {
                         onChange={() => handleToggleActive(s)}
                         disabled={togglingId === s.id}
                       />
+                    </td>
+                    <td className="p-4 text-center">
+                      <button
+                        onClick={() => openPermissionsDialog(s)}
+                        title="Edit access"
+                        aria-label={`Edit access for ${s.name}`}
+                        className="p-1.5 text-slate-400 hover:text-gold-dark hover:bg-gold/10 rounded-lg transition-colors"
+                      >
+                        <Pencil className="w-4 h-4" />
+                      </button>
                     </td>
                   </tr>
                 ))}
@@ -191,9 +264,9 @@ export default function AdminUsersPage() {
         isOpen={dialogOpen}
         onClose={() => !saving && setDialogOpen(false)}
         title="Add Staff Member"
-        maxWidth="max-w-md"
+        maxWidth="max-w-lg"
       >
-        <div className="space-y-3.5 text-xs">
+        <div className="space-y-3.5 text-xs max-h-[70vh] overflow-y-auto pr-1">
           {formError && (
             <div role="alert" className="text-xs font-medium text-red-700 bg-red-50 border border-red-200 rounded-lg px-3 py-2">
               {formError}
@@ -246,12 +319,42 @@ export default function AdminUsersPage() {
             {fieldErrors.password && <p className="text-[11px] text-red-600 font-medium">{fieldErrors.password}</p>}
           </div>
 
+          <div className="space-y-1.5 pt-1">
+            <label className="font-bold text-slate-500 uppercase text-[10px] flex items-center gap-1.5">
+              <ShieldCheck className="w-3.5 h-3.5 text-gold-dark" /> Staff Access
+            </label>
+            <PermissionSelector
+              selected={form.permissions}
+              onChange={(next) => setForm((f) => ({ ...f, permissions: next }))}
+            />
+          </div>
+
           <div className="flex justify-end gap-2 pt-2">
             <Button variant="outline" size="sm" onClick={() => setDialogOpen(false)} disabled={saving}>
               Cancel
             </Button>
             <Button size="sm" className="bg-gold hover:bg-gold-dark text-white font-bold" onClick={handleSave} disabled={saving}>
               {saving ? 'Creating…' : 'Create Staff'}
+            </Button>
+          </div>
+        </div>
+      </Dialog>
+
+      {/* EDIT PERMISSIONS DIALOG */}
+      <Dialog
+        isOpen={!!permTarget}
+        onClose={() => !savingPerms && setPermTarget(null)}
+        title={permTarget ? `Edit Access — ${permTarget.name}` : ''}
+        maxWidth="max-w-lg"
+      >
+        <div className="space-y-3">
+          <PermissionSelector selected={permSelection} onChange={setPermSelection} />
+          <div className="flex justify-end gap-2 pt-2">
+            <Button variant="outline" size="sm" onClick={() => setPermTarget(null)} disabled={savingPerms}>
+              Cancel
+            </Button>
+            <Button size="sm" className="bg-gold hover:bg-gold-dark text-white font-bold" onClick={handleSavePermissions} disabled={savingPerms}>
+              {savingPerms ? 'Saving…' : 'Save Access'}
             </Button>
           </div>
         </div>

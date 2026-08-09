@@ -146,7 +146,7 @@ export default function CatalogueStudioPage() {
                     src={product.primaryImageUrl}
                     alt={product.name}
                     loading="lazy"
-                    className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
+                    className="w-full h-full object-contain p-3 group-hover:scale-105 transition-transform duration-300"
                   />
                 ) : (
                   <ImageOff className="w-8 h-8 text-slate-300" />
