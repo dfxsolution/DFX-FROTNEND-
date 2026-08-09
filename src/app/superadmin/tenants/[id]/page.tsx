@@ -8,8 +8,10 @@ import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Dialog, DialogFooter } from '@/components/ui/dialog';
 import { Toast } from '@/components/ui/toast';
-import { ArrowLeft, Users, Coins, CreditCard, Scale, ShieldCheck, ShieldOff, KeyRound, UserX, UserCheck } from 'lucide-react';
+import { ArrowLeft, Users, Coins, CreditCard, Scale, ShieldCheck, ShieldOff, KeyRound, UserX, UserCheck, CalendarClock } from 'lucide-react';
 import { formatCurrency } from '@/lib/formatters';
+import { Select } from '@/components/ui/form-controls';
+import { Input } from '@/components/ui/input';
 import {
   superAdminService,
   TenantDetail,
@@ -17,6 +19,15 @@ import {
   TenantStatus,
 } from '@/services/superAdminService';
 import { ApiError } from '@/lib/apiClient';
+
+const PLAN_OPTIONS = ['Starter', 'Professional', 'Business', 'Enterprise'];
+
+const SUBSCRIPTION_STATUS_BADGE: Record<string, 'success' | 'draft' | 'danger' | 'neutral'> = {
+  Active: 'success',
+  Trial: 'draft',
+  Expired: 'danger',
+  Suspended: 'neutral',
+};
 
 const TENANT_STATUS_BADGE: Record<TenantStatus, 'success' | 'neutral'> = {
   Active: 'success',
@@ -40,6 +51,12 @@ export default function SuperAdminTenantDetailPage() {
   const [adminActionLoading, setAdminActionLoading] = useState(false);
   const [deactivateAdminConfirmOpen, setDeactivateAdminConfirmOpen] = useState(false);
   const [resetPasswordConfirmOpen, setResetPasswordConfirmOpen] = useState(false);
+
+  const [subDialogOpen, setSubDialogOpen] = useState(false);
+  const [subPlan, setSubPlan] = useState('Professional');
+  const [subAccessMode, setSubAccessMode] = useState<'TRIAL' | 'INDEFINITE'>('TRIAL');
+  const [subTrialDays, setSubTrialDays] = useState(30);
+  const [subSaving, setSubSaving] = useState(false);
 
   const loadTenant = async () => {
     setLoading(true);
@@ -133,6 +150,31 @@ export default function SuperAdminTenantDetailPage() {
       setToastMsg(err instanceof ApiError ? err.message : 'Could not reset Admin password');
     } finally {
       setAdminActionLoading(false);
+    }
+  };
+
+  const openSubDialog = () => {
+    setSubPlan(tenant?.subscription?.plan || 'Professional');
+    setSubAccessMode(tenant?.subscription?.trialEndsAt ? 'TRIAL' : 'INDEFINITE');
+    setSubTrialDays(30);
+    setSubDialogOpen(true);
+  };
+
+  const handleSaveSubscription = async () => {
+    setSubSaving(true);
+    try {
+      const updated = await superAdminService.updateTenantSubscription(tenantId, {
+        plan: subPlan,
+        accessMode: subAccessMode,
+        ...(subAccessMode === 'TRIAL' && { trialDays: subTrialDays }),
+      });
+      setTenant(updated);
+      setSubDialogOpen(false);
+      setToastMsg('Subscription updated.');
+    } catch (err) {
+      setToastMsg(err instanceof ApiError ? err.message : 'Could not update subscription.');
+    } finally {
+      setSubSaving(false);
     }
   };
 
@@ -266,6 +308,39 @@ export default function SuperAdminTenantDetailPage() {
             </Card>
           )}
 
+          <Card className="p-5 max-w-lg border-slate-200 shadow-xs">
+            <CardHeader className="p-0 mb-3 flex flex-row items-center justify-between">
+              <div>
+                <CardTitle className="text-sm font-bold text-[#0B0E23]">Subscription / Access</CardTitle>
+                <p className="text-[11px] text-slate-500 font-medium mt-0.5">
+                  Enforced at login and token refresh — an expired trial actually blocks access.
+                </p>
+              </div>
+              {tenant.subscription && (
+                <Badge variant={SUBSCRIPTION_STATUS_BADGE[tenant.subscription.status] || 'neutral'} dot>
+                  {tenant.subscription.status}
+                </Badge>
+              )}
+            </CardHeader>
+            <CardContent className="p-0 space-y-2 text-xs">
+              <div className="flex justify-between">
+                <span className="text-slate-500 font-medium">Plan</span>
+                <span className="font-bold text-[#0B0E23]">{tenant.subscription?.plan ?? 'No subscription'}</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-slate-500 font-medium">Access</span>
+                <span className="font-bold text-[#0B0E23]">
+                  {tenant.subscription?.trialEndsAt
+                    ? `Trial — expires ${new Date(tenant.subscription.trialEndsAt).toLocaleDateString('en-IN', { dateStyle: 'medium' })}`
+                    : 'Indefinite'}
+                </span>
+              </div>
+              <Button size="sm" variant="outline" className="mt-2" onClick={openSubDialog}>
+                <CalendarClock className="w-3.5 h-3.5 mr-1.5" /> Manage Subscription
+              </Button>
+            </CardContent>
+          </Card>
+
           <Card className="p-5 border-slate-200 bg-white shadow-xs max-w-3xl">
             <CardHeader className="p-0 mb-4">
               <CardTitle className="text-base font-bold text-[#0B0E23]">Business Statistics</CardTitle>
@@ -313,8 +388,9 @@ export default function SuperAdminTenantDetailPage() {
       >
         <p className="text-xs text-slate-600">
           Disable <span className="font-bold text-[#0B0E23]">{tenant?.name}</span>? This sets the tenant&apos;s status to
-          Inactive and hides it from public store selection during customer signup. It does <strong>not</strong> immediately
-          sign out or block existing logged-in users of this tenant.
+          Inactive, hides it from public store selection, and immediately blocks any further login or session refresh
+          for this tenant&apos;s users. An access token already issued stays valid only until it naturally expires
+          (a short window).
         </p>
         <DialogFooter>
           <Button variant="outline" size="sm" onClick={() => setDisableConfirmOpen(false)} disabled={toggling}>
@@ -361,6 +437,56 @@ export default function SuperAdminTenantDetailPage() {
           </Button>
           <Button size="sm" isLoading={adminActionLoading} onClick={handleConfirmResetPassword}>
             Send Reset Link
+          </Button>
+        </DialogFooter>
+      </Dialog>
+
+      <Dialog
+        isOpen={subDialogOpen}
+        onClose={() => !subSaving && setSubDialogOpen(false)}
+        title="Manage Subscription"
+      >
+        <div className="space-y-3.5 text-xs">
+          <div className="space-y-1">
+            <label className="font-bold text-slate-500 uppercase text-[10px]">Plan</label>
+            <Select value={subPlan} onChange={(e) => setSubPlan(e.target.value)}>
+              {PLAN_OPTIONS.map((p) => <option key={p} value={p}>{p}</option>)}
+            </Select>
+          </div>
+          <div className="space-y-1">
+            <label className="font-bold text-slate-500 uppercase text-[10px]">Access Type</label>
+            <div className="grid grid-cols-2 gap-2">
+              <button
+                type="button"
+                onClick={() => setSubAccessMode('TRIAL')}
+                className={`p-2.5 rounded-xl border text-left transition-all ${subAccessMode === 'TRIAL' ? 'bg-gold text-white border-gold' : 'bg-white border-slate-200 hover:border-gold/50'}`}
+              >
+                <span className="text-xs font-bold block">Trial</span>
+                <span className={`text-[10px] ${subAccessMode === 'TRIAL' ? 'text-white/80' : 'text-slate-400'}`}>Extend by N days from now</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => setSubAccessMode('INDEFINITE')}
+                className={`p-2.5 rounded-xl border text-left transition-all ${subAccessMode === 'INDEFINITE' ? 'bg-gold text-white border-gold' : 'bg-white border-slate-200 hover:border-gold/50'}`}
+              >
+                <span className="text-xs font-bold block">Indefinite</span>
+                <span className={`text-[10px] ${subAccessMode === 'INDEFINITE' ? 'text-white/80' : 'text-slate-400'}`}>No auto-expiry</span>
+              </button>
+            </div>
+          </div>
+          {subAccessMode === 'TRIAL' && (
+            <div className="space-y-1">
+              <label className="font-bold text-slate-500 uppercase text-[10px]">Extend Access By (days from today)</label>
+              <Input type="number" min={1} max={3650} value={subTrialDays} onChange={(e) => setSubTrialDays(e.target.value ? parseInt(e.target.value, 10) : 1)} />
+            </div>
+          )}
+        </div>
+        <DialogFooter>
+          <Button variant="outline" size="sm" onClick={() => setSubDialogOpen(false)} disabled={subSaving}>
+            Cancel
+          </Button>
+          <Button size="sm" isLoading={subSaving} onClick={handleSaveSubscription}>
+            Save
           </Button>
         </DialogFooter>
       </Dialog>

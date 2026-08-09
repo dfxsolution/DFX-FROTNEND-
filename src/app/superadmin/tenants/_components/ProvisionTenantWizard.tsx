@@ -306,15 +306,43 @@ export const ProvisionTenantWizard: React.FC<ProvisionTenantWizardProps> = ({ is
                     ))}
                   </div>
                 </Field>
-                <Field label="Trial Length (days)">
-                  <Input
-                    type="number"
-                    min={0}
-                    max={365}
-                    value={form.trialDays}
-                    onChange={(e) => set('trialDays', e.target.value ? parseInt(e.target.value, 10) : 0)}
-                  />
+                <Field label="Access Type">
+                  <div className="grid grid-cols-2 gap-2.5">
+                    <button
+                      type="button"
+                      onClick={() => set('trialDays', form.trialDays === 0 ? 14 : form.trialDays)}
+                      className={cn(
+                        'flex flex-col items-start gap-0.5 p-3 rounded-xl border text-left transition-all',
+                        form.trialDays > 0 ? 'bg-gold text-white border-gold shadow-sm' : 'bg-white border-slate-200 hover:border-gold/50'
+                      )}
+                    >
+                      <span className="text-xs font-bold">Trial</span>
+                      <span className={cn('text-[10px]', form.trialDays > 0 ? 'text-white/80' : 'text-slate-400')}>Expires automatically</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => set('trialDays', 0)}
+                      className={cn(
+                        'flex flex-col items-start gap-0.5 p-3 rounded-xl border text-left transition-all',
+                        form.trialDays === 0 ? 'bg-gold text-white border-gold shadow-sm' : 'bg-white border-slate-200 hover:border-gold/50'
+                      )}
+                    >
+                      <span className="text-xs font-bold">Indefinite</span>
+                      <span className={cn('text-[10px]', form.trialDays === 0 ? 'text-white/80' : 'text-slate-400')}>No auto-expiry — manual control</span>
+                    </button>
+                  </div>
                 </Field>
+                {form.trialDays > 0 && (
+                  <Field label="Trial Length (days)">
+                    <Input
+                      type="number"
+                      min={1}
+                      max={365}
+                      value={form.trialDays}
+                      onChange={(e) => set('trialDays', e.target.value ? parseInt(e.target.value, 10) : 1)}
+                    />
+                  </Field>
+                )}
               </>
             )}
 
@@ -346,7 +374,7 @@ export const ProvisionTenantWizard: React.FC<ProvisionTenantWizardProps> = ({ is
                 {form.contactEmail && <ReviewRow label="Contact Email" value={form.contactEmail} />}
                 {form.gstNumber && <ReviewRow label="GST" value={form.gstNumber} />}
                 <ReviewRow label="Admin" value={`${form.adminName} — ${form.adminEmail}`} />
-                <ReviewRow label="Plan" value={`${form.plan} (${form.trialDays}-day trial)`} />
+                <ReviewRow label="Plan" value={`${form.plan} (${form.trialDays > 0 ? `${form.trialDays}-day trial` : 'Indefinite access'})`} />
                 <ReviewRow label="Brand Color" value={form.brandColor || '#2C6FBD'} swatch />
                 {error && (
                   <p className="text-[11px] font-semibold text-red-700 bg-red-50 border border-red-200 rounded-xl px-3 py-2">

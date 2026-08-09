@@ -65,12 +65,11 @@ export default function EnterpriseLoginPage() {
 
     try {
       const { redirectPath } = await loginWithEmail(email, password);
-      setLoading(false);
-      setToastMsg('Authentication successful. Accessing workspace...');
-
-      setTimeout(() => {
-        router.push(redirectPath);
-      }, 500);
+      // Deliberately leave `loading` true (button stays disabled, spinner
+      // stays visible) all the way through navigation — resetting it here
+      // re-enables the Sign In button for the moment before the route
+      // change lands, which is what previously invited a duplicate submit.
+      router.replace(redirectPath);
     } catch (err: any) {
       setLoading(false);
       setError(err?.message || 'Invalid email or password.');

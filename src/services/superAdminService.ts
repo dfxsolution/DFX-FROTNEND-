@@ -82,16 +82,32 @@ function mapTenant(raw: BackendTenantListItem): TenantListItem {
   };
 }
 
+interface BackendSubscriptionSummary {
+  id: string;
+  plan: string;
+  status: string;
+  trial_ends_at: string | null;
+}
+
+export interface TenantSubscription {
+  id: string;
+  plan: string;
+  status: string;
+  trialEndsAt: string | null;
+}
+
 interface BackendTenantDetail extends BackendTenantListItem {
   updated_at: string;
   brand_color?: string | null;
   logo_url?: string | null;
+  subscription?: BackendSubscriptionSummary | null;
 }
 
 export interface TenantDetail extends TenantListItem {
   updatedAt: string;
   brandColor: string | null;
   logoUrl: string | null;
+  subscription: TenantSubscription | null;
 }
 
 function mapTenantDetail(raw: BackendTenantDetail): TenantDetail {
@@ -100,6 +116,9 @@ function mapTenantDetail(raw: BackendTenantDetail): TenantDetail {
     updatedAt: raw.updated_at,
     brandColor: raw.brand_color ?? null,
     logoUrl: raw.logo_url ?? null,
+    subscription: raw.subscription
+      ? { id: raw.subscription.id, plan: raw.subscription.plan, status: raw.subscription.status, trialEndsAt: raw.subscription.trial_ends_at }
+      : null,
   };
 }
 
@@ -375,6 +394,23 @@ export const superAdminService = {
 
   async disableTenant(id: string): Promise<TenantDetail> {
     return superAdminService.setTenantStatus(id, 'Inactive');
+  },
+
+  /** PUT /api/v1/superadmin/tenants/{id}/subscription (SuperAdmin) — change plan and/or extend trial / switch to indefinite. */
+  async updateTenantSubscription(
+    id: string,
+    data: { plan?: string; accessMode: 'TRIAL' | 'INDEFINITE'; trialDays?: number }
+  ): Promise<TenantDetail> {
+    const res = await apiClient.put<{ tenant: BackendTenantDetail }>(
+      `/superadmin/tenants/${id}/subscription`,
+      {
+        ...(data.plan !== undefined && { plan: data.plan }),
+        access_mode: data.accessMode,
+        ...(data.trialDays !== undefined && { trial_days: data.trialDays }),
+      },
+      { auth: true }
+    );
+    return mapTenantDetail(res.data.tenant);
   },
 
   /**
