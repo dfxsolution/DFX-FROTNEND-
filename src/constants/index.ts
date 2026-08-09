@@ -62,6 +62,7 @@ export const ADMIN_NAV_ITEMS = [
   { key: 'branches', icon: 'Store', label: 'Branches', path: '/admin/branches', ready: true, staffModule: 'branches' },
   { key: 'users', icon: 'UserCheck', label: 'Staff Users', path: '/admin/users', ready: true, staffModule: null },
   { key: 'support', icon: 'LifeBuoy', label: 'Support', path: '/admin/support', ready: true, staffModule: 'support' },
+  { key: 'notifications', icon: 'Bell', label: 'Notifications', path: '/admin/notifications', ready: true, staffModule: 'notifications' },
   { key: 'settings', icon: 'Settings', label: 'Settings', path: '/admin/settings', ready: true, staffModule: null },
 ] as const;
 
