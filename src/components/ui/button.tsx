@@ -26,8 +26,10 @@ const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(
       "inline-flex items-center justify-center font-bold tracking-wide transition-all duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gold focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 active:scale-[0.98] select-none cursor-pointer rounded-xl";
 
     const variants = {
+      // Flat gold fill with a single darker hover shade — was a 3-stop
+      // gradient, which read as flashy/generic-SaaS rather than enterprise.
       primary:
-        "bg-gradient-to-r from-gold via-gold-light to-gold-dark hover:from-gold-dark hover:to-gold text-white shadow-sm hover:shadow-md border border-gold/40",
+        "bg-gold hover:bg-gold-dark text-white shadow-sm hover:shadow-md border border-gold/40",
       secondary:
         "bg-[#0B0E23] text-white hover:bg-[#151C3A] shadow-sm border border-[#0B0E23]",
       ghost:
