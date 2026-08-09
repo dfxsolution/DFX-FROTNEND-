@@ -2,6 +2,14 @@ import { apiClient } from '@/lib/apiClient';
 
 export type IntegrationStatus = 'not_configured' | 'configured_disabled' | 'enabled' | 'connection_failed';
 
+export interface ConfigField {
+  key: string;
+  label: string;
+  secret: boolean;
+  required: boolean;
+  type: 'text' | 'number' | 'boolean';
+}
+
 export interface Integration {
   provider: string;
   label: string;
@@ -12,6 +20,8 @@ export interface Integration {
   lastTestedAt: string | null;
   lastTestStatus: string | null;
   lastError: string | null;
+  fields: ConfigField[];
+  maskedConfig: Record<string, string | number | boolean>;
 }
 
 interface BackendIntegration {
@@ -24,6 +34,8 @@ interface BackendIntegration {
   last_tested_at: string | null;
   last_test_status: string | null;
   last_error: string | null;
+  fields: ConfigField[];
+  masked_config: Record<string, string | number | boolean>;
 }
 
 export interface Webhook {
@@ -59,6 +71,8 @@ function mapIntegration(raw: BackendIntegration): Integration {
     lastTestedAt: raw.last_tested_at,
     lastTestStatus: raw.last_test_status,
     lastError: raw.last_error,
+    fields: raw.fields ?? [],
+    maskedConfig: raw.masked_config ?? {},
   };
 }
 
@@ -87,6 +101,25 @@ export const integrationService = {
     const res = await apiClient.put<{ integration: BackendIntegration }>(
       `/superadmin/integrations/${provider}`,
       { enabled },
+      { auth: true }
+    );
+    return mapIntegration(res.data.integration);
+  },
+
+  /** PUT /api/v1/superadmin/integrations/{provider}/config — encrypted server-side, never returned. */
+  async saveConfig(provider: string, values: Record<string, string | number | boolean>): Promise<Integration> {
+    const res = await apiClient.put<{ integration: BackendIntegration }>(
+      `/superadmin/integrations/${provider}/config`,
+      { values },
+      { auth: true }
+    );
+    return mapIntegration(res.data.integration);
+  },
+
+  /** DELETE /api/v1/superadmin/integrations/{provider}/config */
+  async clearConfig(provider: string): Promise<Integration> {
+    const res = await apiClient.delete<{ integration: BackendIntegration }>(
+      `/superadmin/integrations/${provider}/config`,
       { auth: true }
     );
     return mapIntegration(res.data.integration);
