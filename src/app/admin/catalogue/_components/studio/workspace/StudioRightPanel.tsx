@@ -48,12 +48,12 @@ export const StudioRightPanel: React.FC<StudioRightPanelProps> = React.memo(({ o
   }
 
   return (
-    <aside className="w-[380px] shrink-0 bg-white border-l border-slate-200 flex flex-col overflow-hidden">
-      <div className="px-5 pt-4 pb-3 border-b border-slate-100 shrink-0">
+    <aside className="w-full lg:w-[380px] shrink-0 bg-white border-t lg:border-t-0 lg:border-l border-slate-200 flex flex-col lg:overflow-hidden">
+      <div className="px-4 sm:px-5 pt-4 pb-3 border-b border-slate-100 shrink-0">
         <h2 className="font-display font-bold text-sm text-ink">{STUDIO_STEPS[currentStep]}</h2>
         <p className="text-[11px] text-slate-400 font-medium mt-0.5 leading-relaxed">{STEP_HINTS[currentStep]}</p>
       </div>
-      <div key={currentStep} className="flex-1 overflow-y-auto px-5 py-4 animate-fade-in-up">
+      <div key={currentStep} className="flex-1 lg:overflow-y-auto px-4 sm:px-5 py-4 animate-fade-in-up">
         {content}
       </div>
     </aside>

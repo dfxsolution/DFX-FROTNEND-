@@ -30,8 +30,8 @@ export const StudioLeftNav: React.FC = React.memo(() => {
   );
 
   return (
-    <nav className="w-64 shrink-0 bg-white border-r border-slate-200 flex flex-col overflow-y-auto">
-      <div className="px-4 pt-4 pb-3">
+    <nav className="w-full lg:w-64 shrink-0 bg-white border-b lg:border-b-0 lg:border-r border-slate-200 flex flex-col lg:overflow-y-auto">
+      <div className="px-4 pt-3 pb-2 lg:pt-4 lg:pb-3">
         <div className="flex items-center justify-between mb-1.5">
           <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wide">Progress</span>
           <span className="text-[11px] font-bold text-gold-dark">{progressPercent}%</span>
@@ -44,7 +44,8 @@ export const StudioLeftNav: React.FC = React.memo(() => {
         </div>
       </div>
 
-      <div className="flex-1 px-2.5 pb-4 space-y-1">
+      {/* Mobile: horizontal scrollable step strip. Desktop (lg+): unchanged vertical list. */}
+      <div className="flex-1 px-2.5 pb-3 lg:pb-4 flex flex-row lg:flex-col gap-1.5 lg:gap-0 lg:space-y-1 overflow-x-auto lg:overflow-x-visible no-scrollbar">
         {STUDIO_STEPS.map((label, index) => {
           const Icon = STEP_ICONS[index];
           const isActive = index === currentStep;
@@ -58,7 +59,7 @@ export const StudioLeftNav: React.FC = React.memo(() => {
               onClick={() => isUnlocked && setCurrentStep(index)}
               disabled={!isUnlocked}
               className={cn(
-                'w-full flex items-start gap-3 px-3 py-2.5 rounded-xl text-left transition-all duration-150',
+                'shrink-0 lg:w-full flex items-center lg:items-start gap-2 lg:gap-3 px-3 py-2 lg:py-2.5 rounded-xl text-left transition-all duration-150',
                 isActive
                   ? 'bg-gradient-to-r from-gold/10 to-gold/5 border border-gold/30 shadow-sm'
                   : isUnlocked
@@ -68,7 +69,7 @@ export const StudioLeftNav: React.FC = React.memo(() => {
             >
               <span
                 className={cn(
-                  'flex items-center justify-center w-8 h-8 rounded-lg shrink-0 transition-colors duration-150',
+                  'flex items-center justify-center w-7 h-7 lg:w-8 lg:h-8 rounded-lg shrink-0 transition-colors duration-150',
                   isActive
                     ? 'bg-gold text-white shadow-glow'
                     : isDone
@@ -84,11 +85,11 @@ export const StudioLeftNav: React.FC = React.memo(() => {
                   <Icon className="w-4 h-4" />
                 )}
               </span>
-              <span className="min-w-0 pt-0.5">
-                <span className={cn('block text-xs font-bold truncate', isActive ? 'text-ink' : 'text-slate-700')}>
+              <span className="min-w-0 pt-0 lg:pt-0.5">
+                <span className={cn('block text-xs font-bold whitespace-nowrap lg:whitespace-normal lg:truncate', isActive ? 'text-ink' : 'text-slate-700')}>
                   {label}
                 </span>
-                <span className="block text-[10.5px] text-slate-400 font-medium truncate">
+                <span className="hidden lg:block text-[10.5px] text-slate-400 font-medium truncate">
                   {isCreateGate ? 'Creates the product' : STEP_DESCRIPTIONS[index]}
                 </span>
               </span>

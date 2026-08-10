@@ -129,7 +129,7 @@ export const StudioCenterCanvas: React.FC = React.memo(() => {
     // FULL_BLEED composition (StudioContext auto-selects it once an image
     // exists) — there is no user-facing template choice anymore.
     body = canvas ? (
-      <div className="w-full h-full grid grid-cols-2 gap-3 p-4">
+      <div className="w-full h-full grid grid-cols-1 sm:grid-cols-2 gap-3 p-3 sm:p-4">
         <div className="min-h-0 flex flex-col gap-1.5">
           <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wide text-center">Before</span>
           <div className="flex-1 min-h-0 rounded-2xl bg-white border border-slate-200 flex items-center justify-center overflow-hidden">
@@ -162,7 +162,7 @@ export const StudioCenterCanvas: React.FC = React.memo(() => {
     (showEditingToolbar && editPreviewLoading) || ((currentStep === 4 || currentStep === 5) && renderPreviewLoading);
 
   return (
-    <div className="flex-1 min-w-0 flex flex-col p-5 gap-3">
+    <div className="min-h-[60vh] lg:min-h-0 lg:flex-1 min-w-0 flex flex-col p-3 sm:p-5 gap-3">
       <div className="flex items-center justify-between shrink-0">
         <div className="flex items-center gap-1.5">
           {showEditingToolbar && (

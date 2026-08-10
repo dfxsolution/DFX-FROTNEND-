@@ -1,4 +1,4 @@
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 import { Golos_Text, Inter } from "next/font/google";
 import { AuthProvider } from "@/providers/AuthProvider";
 import { ErrorBoundary } from "@/components/shared/ErrorBoundary";
@@ -21,6 +21,12 @@ const inter = Inter({
 export const metadata: Metadata = {
   title: "DFX Solution — Jewellery Relationship Operating System",
   description: "White Label Multi-Tenant SaaS Platform for Jewellery Businesses",
+};
+
+export const viewport: Viewport = {
+  width: "device-width",
+  initialScale: 1,
+  maximumScale: 5,
 };
 
 export default function RootLayout({

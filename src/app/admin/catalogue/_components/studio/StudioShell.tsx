@@ -36,10 +36,10 @@ export const StudioShell: React.FC = () => {
   const workspaceHasError = !isNewProduct && !loadingProduct && (loadError || !product);
 
   return (
-    <div className="h-[calc(100vh-108px)] flex flex-col rounded-3xl overflow-hidden border border-slate-200 shadow-premium bg-cream-dark">
+    <div className="lg:h-[calc(100vh-108px)] flex flex-col rounded-3xl overflow-hidden border border-slate-200 shadow-premium bg-cream-dark">
       <StudioTopHeader onToast={showToast} />
 
-      <div className="flex-1 min-h-0 flex overflow-hidden">
+      <div className="flex-1 min-h-0 flex flex-col lg:flex-row overflow-y-auto lg:overflow-hidden">
         <StudioLeftNav />
 
         {workspaceIsLoading ? (
