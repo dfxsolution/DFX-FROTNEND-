@@ -1,0 +1,452 @@
+"use client";
+
+import React, { useEffect, useState } from 'react';
+import { Card } from '@/components/ui/card';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { Select } from '@/components/ui/form-controls';
+import { Badge, BadgeProps } from '@/components/ui/badge';
+import { Skeleton } from '@/components/ui/skeleton';
+import { Toast } from '@/components/ui/toast';
+import { EmptyState } from '@/components/ui/empty-state';
+import { Dialog, DialogFooter } from '@/components/ui/dialog';
+import { Boxes, Plus, Pencil, ImagePlus, Search, PackageX } from 'lucide-react';
+import {
+  billingService,
+  InventoryItem,
+  InventoryItemFormData,
+  Purity,
+  ChargeType,
+  StockStatus,
+  PURITY_OPTIONS,
+  CHARGE_TYPE_OPTIONS,
+} from '@/services/billingService';
+import { ApiError } from '@/lib/apiClient';
+import { formatCurrency, formatWeight } from '@/lib/formatters';
+
+const STOCK_BADGE: Record<StockStatus, BadgeProps['variant']> = {
+  IN_STOCK: 'success',
+  SOLD: 'neutral',
+  INACTIVE: 'inactive',
+};
+
+const emptyForm: InventoryItemFormData = {
+  productCode: '',
+  productName: '',
+  category: '',
+  subcategory: '',
+  huid: '',
+  purity: '22K',
+  grossWeightGrams: 0,
+  netGoldWeightGrams: 0,
+  vendorName: '',
+  purchaseDate: '',
+  purchaseInvoiceRef: '',
+  purchaseCost: undefined,
+  makingChargeType: 'PERCENTAGE',
+  makingChargeValue: 0,
+  wastageType: 'PERCENTAGE',
+  wastageValue: 0,
+  stoneChargeAmount: 0,
+  otherChargesAmount: 0,
+  taxRatePercent: 3,
+};
+
+export default function InventoryPage() {
+  const [items, setItems] = useState<InventoryItem[]>([]);
+  const [total, setTotal] = useState(0);
+  const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState('');
+  const [search, setSearch] = useState('');
+  const [statusFilter, setStatusFilter] = useState<StockStatus | ''>('');
+
+  const [modalOpen, setModalOpen] = useState(false);
+  const [editingItem, setEditingItem] = useState<InventoryItem | null>(null);
+  const [form, setForm] = useState<InventoryItemFormData>(emptyForm);
+  const [formError, setFormError] = useState('');
+  const [saving, setSaving] = useState(false);
+  const [uploadingImage, setUploadingImage] = useState(false);
+
+  const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' } | null>(null);
+
+  const loadItems = async () => {
+    setLoading(true);
+    setLoadError('');
+    try {
+      const res = await billingService.listInventory({
+        search: search || undefined,
+        stockStatus: statusFilter || undefined,
+        limit: 100,
+      });
+      setItems(res.items);
+      setTotal(res.total);
+    } catch (err) {
+      setLoadError(err instanceof ApiError ? err.message : 'Could not load inventory.');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    loadItems();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [statusFilter]);
+
+  const openCreateModal = () => {
+    setEditingItem(null);
+    setForm(emptyForm);
+    setFormError('');
+    setModalOpen(true);
+  };
+
+  const openEditModal = (item: InventoryItem) => {
+    setEditingItem(item);
+    setForm({
+      productCode: item.productCode,
+      productName: item.productName,
+      category: item.category || '',
+      subcategory: item.subcategory || '',
+      huid: item.huid || '',
+      purity: item.purity,
+      grossWeightGrams: item.grossWeightGrams,
+      netGoldWeightGrams: item.netGoldWeightGrams,
+      vendorName: item.vendorName || '',
+      purchaseDate: item.purchaseDate || '',
+      purchaseInvoiceRef: item.purchaseInvoiceRef || '',
+      purchaseCost: item.purchaseCost ?? undefined,
+      makingChargeType: item.makingChargeType,
+      makingChargeValue: item.makingChargeValue,
+      wastageType: item.wastageType,
+      wastageValue: item.wastageValue,
+      stoneChargeAmount: item.stoneChargeAmount,
+      otherChargesAmount: item.otherChargesAmount,
+      taxRatePercent: item.taxRatePercent,
+    });
+    setFormError('');
+    setModalOpen(true);
+  };
+
+  const isSold = editingItem?.stockStatus === 'SOLD';
+
+  const validate = (): string | null => {
+    if (!form.productCode.trim()) return 'Product Code is required.';
+    if (!form.productName.trim() || form.productName.trim().length < 2) return 'Product Name is required.';
+    if (!form.grossWeightGrams || form.grossWeightGrams <= 0) return 'Gross Weight must be greater than 0.';
+    if (!form.netGoldWeightGrams || form.netGoldWeightGrams <= 0) return 'Net Gold Weight must be greater than 0.';
+    if (form.netGoldWeightGrams > form.grossWeightGrams) return 'Net Gold Weight cannot exceed Gross Weight.';
+    if (form.taxRatePercent === undefined || form.taxRatePercent === null || form.taxRatePercent < 0) {
+      return 'Tax/GST rate is required.';
+    }
+    return null;
+  };
+
+  const handleSave = async () => {
+    const validationError = validate();
+    if (validationError) {
+      setFormError(validationError);
+      return;
+    }
+    setFormError('');
+    setSaving(true);
+    try {
+      if (editingItem) {
+        await billingService.updateInventoryItem(editingItem.id, form);
+        setToast({ message: 'Inventory item updated successfully', type: 'success' });
+      } else {
+        await billingService.createInventoryItem(form);
+        setToast({ message: 'Inventory item created successfully', type: 'success' });
+      }
+      setModalOpen(false);
+      loadItems();
+    } catch (err) {
+      setFormError(err instanceof ApiError ? err.message : 'Could not save the inventory item.');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleImageChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file || !editingItem) return;
+    setUploadingImage(true);
+    try {
+      const updated = await billingService.uploadInventoryItemImage(editingItem.id, file);
+      setEditingItem(updated);
+      setToast({ message: 'Image uploaded successfully', type: 'success' });
+      loadItems();
+    } catch (err) {
+      setToast({ message: err instanceof ApiError ? err.message : 'Image upload failed', type: 'error' });
+    } finally {
+      setUploadingImage(false);
+    }
+  };
+
+  const handleRetireItem = async (item: InventoryItem) => {
+    try {
+      const updated = await billingService.setInventoryItemStatus(item.id, 'INACTIVE');
+      setItems((prev) => prev.map((i) => (i.id === updated.id ? updated : i)));
+      setToast({ message: 'Item marked inactive', type: 'success' });
+    } catch (err) {
+      setToast({ message: err instanceof ApiError ? err.message : 'Could not update item', type: 'error' });
+    }
+  };
+
+  return (
+    <div className="space-y-6 animate-in fade-in duration-300 font-body">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 bg-white p-5 rounded-2xl border border-slate-200 shadow-xs">
+        <div className="flex items-center gap-3">
+          <div className="w-11 h-11 rounded-2xl bg-gold/10 border border-gold/30 flex items-center justify-center shrink-0">
+            <Boxes className="h-5 w-5 text-gold" />
+          </div>
+          <div>
+            <h1 className="font-display font-extrabold text-2xl text-[#0B0E23]">Inventory</h1>
+            <p className="text-xs text-slate-500 mt-0.5 font-medium">
+              Finished jewellery products bought from vendors, each with a unique Product Code.
+            </p>
+          </div>
+        </div>
+        <Button onClick={openCreateModal} className="shrink-0">
+          <Plus className="h-4 w-4 mr-1.5" /> Add Item
+        </Button>
+      </div>
+
+      <div className="flex flex-col sm:flex-row gap-3">
+        <div className="relative flex-1 max-w-sm">
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" />
+          <Input
+            placeholder="Search by product code or name..."
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            onKeyDown={(e) => e.key === 'Enter' && loadItems()}
+            className="pl-9"
+          />
+        </div>
+        <Select
+          value={statusFilter}
+          onChange={(e) => setStatusFilter(e.target.value as StockStatus | '')}
+          className="max-w-[180px]"
+        >
+          <option value="">All statuses</option>
+          <option value="IN_STOCK">In Stock</option>
+          <option value="SOLD">Sold</option>
+          <option value="INACTIVE">Inactive</option>
+        </Select>
+        <Button variant="outline" onClick={loadItems}>Search</Button>
+      </div>
+
+      {loading && (
+        <div className="space-y-2">
+          {[...Array(5)].map((_, i) => <Skeleton key={i} className="h-14 w-full" />)}
+        </div>
+      )}
+
+      {!loading && loadError && (
+        <Card className="p-4 border-red-200 bg-red-50/60">
+          <p className="text-xs font-medium text-red-700">{loadError}</p>
+          <Button size="sm" variant="outline" className="mt-3" onClick={loadItems}>Retry</Button>
+        </Card>
+      )}
+
+      {!loading && !loadError && items.length === 0 && (
+        <Card>
+          <EmptyState
+            icon={<PackageX className="h-7 w-7 text-gold" />}
+            title="No inventory items yet"
+            description="Add a finished jewellery item bought from a vendor to give it a Product Code you can sell against."
+            actionLabel="Add Item"
+            onAction={openCreateModal}
+          />
+        </Card>
+      )}
+
+      {!loading && !loadError && items.length > 0 && (
+        <Card className="overflow-hidden">
+          <div className="overflow-x-auto">
+            <table className="w-full text-left">
+              <thead className="bg-slate-50 border-b border-slate-200">
+                <tr>
+                  {['Product Code', 'Name', 'Purity', 'Net Wt.', 'Vendor', 'Status', ''].map((h) => (
+                    <th key={h} className="px-4 py-3 text-[10px] font-bold uppercase tracking-wider text-slate-500">
+                      {h}
+                    </th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-100">
+                {items.map((item) => (
+                  <tr key={item.id} className="hover:bg-slate-50/60 transition-colors">
+                    <td className="px-4 py-3 text-xs font-mono font-bold text-[#0B0E23]">{item.productCode}</td>
+                    <td className="px-4 py-3 text-xs font-semibold text-[#0B0E23]">
+                      {item.productName}
+                      {item.category && <span className="block text-[10px] text-slate-400 font-medium">{item.category}</span>}
+                    </td>
+                    <td className="px-4 py-3 text-xs font-bold text-gold-dark">{item.purity}</td>
+                    <td className="px-4 py-3 text-xs font-medium text-slate-600">{formatWeight(item.netGoldWeightGrams)}</td>
+                    <td className="px-4 py-3 text-xs font-medium text-slate-600">{item.vendorName || '—'}</td>
+                    <td className="px-4 py-3">
+                      <Badge variant={STOCK_BADGE[item.stockStatus]} dot>{item.stockStatus.replace('_', ' ')}</Badge>
+                    </td>
+                    <td className="px-4 py-3 text-right">
+                      <div className="flex items-center justify-end gap-1.5">
+                        <Button size="icon" variant="ghost" onClick={() => openEditModal(item)} aria-label="Edit">
+                          <Pencil className="h-3.5 w-3.5" />
+                        </Button>
+                        {item.stockStatus === 'IN_STOCK' && (
+                          <Button size="sm" variant="outline" onClick={() => handleRetireItem(item)}>
+                            Retire
+                          </Button>
+                        )}
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          <div className="px-4 py-3 border-t border-slate-100 text-[11px] text-slate-500 font-medium">
+            {total} item{total === 1 ? '' : 's'}
+          </div>
+        </Card>
+      )}
+
+      <Dialog
+        isOpen={modalOpen}
+        onClose={() => !saving && setModalOpen(false)}
+        title={editingItem ? `Edit ${editingItem.productCode}` : 'Add Inventory Item'}
+        maxWidth="max-w-2xl"
+      >
+        <div className="space-y-4">
+          {formError && (
+            <div role="alert" className="text-xs font-medium text-red-700 bg-red-50 border border-red-200 rounded-lg px-3 py-2">
+              {formError}
+            </div>
+          )}
+          {isSold && (
+            <div className="text-xs font-medium text-amber-800 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
+              This item has been sold — its record is locked and cannot be edited.
+            </div>
+          )}
+
+          {editingItem && (
+            <div className="flex items-center gap-3 pb-3 border-b border-slate-100">
+              <div className="w-16 h-16 rounded-xl border border-slate-200 bg-slate-50 overflow-hidden shrink-0 flex items-center justify-center">
+                {editingItem.imageUrl ? (
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img src={editingItem.imageUrl} alt={editingItem.productName} className="w-full h-full object-cover" />
+                ) : (
+                  <ImagePlus className="h-5 w-5 text-slate-300" />
+                )}
+              </div>
+              <label className="text-xs font-semibold text-gold-dark cursor-pointer hover:underline">
+                {uploadingImage ? 'Uploading...' : 'Upload Photo'}
+                <input type="file" accept="image/jpeg,image/png,image/webp" className="hidden" disabled={uploadingImage} onChange={handleImageChange} />
+              </label>
+            </div>
+          )}
+
+          <div className="grid grid-cols-2 gap-3">
+            <Field label="Product Code *">
+              <Input value={form.productCode} disabled={!!editingItem} onChange={(e) => setForm({ ...form, productCode: e.target.value })} placeholder="GN00125" />
+            </Field>
+            <Field label="HUID">
+              <Input value={form.huid} disabled={isSold} onChange={(e) => setForm({ ...form, huid: e.target.value })} placeholder="AB12CD34" />
+            </Field>
+            <Field label="Product Name *" full>
+              <Input value={form.productName} disabled={isSold} onChange={(e) => setForm({ ...form, productName: e.target.value })} placeholder="22K Gold Necklace" />
+            </Field>
+            <Field label="Category">
+              <Input value={form.category} disabled={isSold} onChange={(e) => setForm({ ...form, category: e.target.value })} placeholder="Necklace" />
+            </Field>
+            <Field label="Subcategory">
+              <Input value={form.subcategory} disabled={isSold} onChange={(e) => setForm({ ...form, subcategory: e.target.value })} placeholder="Chain" />
+            </Field>
+            <Field label="Purity *">
+              <Select value={form.purity} disabled={isSold} onChange={(e) => setForm({ ...form, purity: e.target.value as Purity })}>
+                {PURITY_OPTIONS.map((p) => <option key={p} value={p}>{p}</option>)}
+              </Select>
+            </Field>
+            <Field label="Gross Weight (g) *">
+              <Input type="number" step="0.001" min="0" value={form.grossWeightGrams || ''} disabled={isSold}
+                onChange={(e) => setForm({ ...form, grossWeightGrams: parseFloat(e.target.value) || 0 })} />
+            </Field>
+            <Field label="Net Gold Weight (g) *">
+              <Input type="number" step="0.001" min="0" value={form.netGoldWeightGrams || ''} disabled={isSold}
+                onChange={(e) => setForm({ ...form, netGoldWeightGrams: parseFloat(e.target.value) || 0 })} />
+            </Field>
+
+            <div className="col-span-2 pt-2 border-t border-slate-100">
+              <p className="text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-2">Vendor / Purchase (historical)</p>
+            </div>
+            <Field label="Vendor / Supplier">
+              <Input value={form.vendorName} disabled={isSold} onChange={(e) => setForm({ ...form, vendorName: e.target.value })} />
+            </Field>
+            <Field label="Purchase Date">
+              <Input type="date" value={form.purchaseDate} disabled={isSold} onChange={(e) => setForm({ ...form, purchaseDate: e.target.value })} />
+            </Field>
+            <Field label="Purchase Invoice Ref">
+              <Input value={form.purchaseInvoiceRef} disabled={isSold} onChange={(e) => setForm({ ...form, purchaseInvoiceRef: e.target.value })} />
+            </Field>
+            <Field label="Purchase Cost (₹)">
+              <Input type="number" step="0.01" min="0" value={form.purchaseCost ?? ''} disabled={isSold}
+                onChange={(e) => setForm({ ...form, purchaseCost: e.target.value ? parseFloat(e.target.value) : undefined })} />
+            </Field>
+
+            <div className="col-span-2 pt-2 border-t border-slate-100">
+              <p className="text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-2">Selling Price Rules</p>
+            </div>
+            <Field label="Making Charge Type">
+              <Select value={form.makingChargeType} disabled={isSold} onChange={(e) => setForm({ ...form, makingChargeType: e.target.value as ChargeType })}>
+                {CHARGE_TYPE_OPTIONS.map((c) => <option key={c.value} value={c.value}>{c.label}</option>)}
+              </Select>
+            </Field>
+            <Field label="Making Charge Value">
+              <Input type="number" step="0.01" min="0" value={form.makingChargeValue} disabled={isSold}
+                onChange={(e) => setForm({ ...form, makingChargeValue: parseFloat(e.target.value) || 0 })} />
+            </Field>
+            <Field label="Wastage Type">
+              <Select value={form.wastageType} disabled={isSold} onChange={(e) => setForm({ ...form, wastageType: e.target.value as ChargeType })}>
+                {CHARGE_TYPE_OPTIONS.map((c) => <option key={c.value} value={c.value}>{c.label}</option>)}
+              </Select>
+            </Field>
+            <Field label="Wastage Value">
+              <Input type="number" step="0.01" min="0" value={form.wastageValue} disabled={isSold}
+                onChange={(e) => setForm({ ...form, wastageValue: parseFloat(e.target.value) || 0 })} />
+            </Field>
+            <Field label="Stone Charge (₹)">
+              <Input type="number" step="0.01" min="0" value={form.stoneChargeAmount} disabled={isSold}
+                onChange={(e) => setForm({ ...form, stoneChargeAmount: parseFloat(e.target.value) || 0 })} />
+            </Field>
+            <Field label="Other Charges (₹)">
+              <Input type="number" step="0.01" min="0" value={form.otherChargesAmount} disabled={isSold}
+                onChange={(e) => setForm({ ...form, otherChargesAmount: parseFloat(e.target.value) || 0 })} />
+            </Field>
+            <Field label="Tax / GST (%) *">
+              <Input type="number" step="0.01" min="0" max="100" value={form.taxRatePercent} disabled={isSold}
+                onChange={(e) => setForm({ ...form, taxRatePercent: parseFloat(e.target.value) || 0 })} />
+            </Field>
+          </div>
+        </div>
+
+        <DialogFooter>
+          <Button variant="outline" onClick={() => setModalOpen(false)} disabled={saving}>Cancel</Button>
+          {!isSold && (
+            <Button onClick={handleSave} isLoading={saving}>
+              {editingItem ? 'Save Changes' : 'Create Item'}
+            </Button>
+          )}
+        </DialogFooter>
+      </Dialog>
+
+      {toast && <Toast message={toast.message} type={toast.type} onClose={() => setToast(null)} />}
+    </div>
+  );
+}
+
+function Field({ label, children, full }: { label: string; children: React.ReactNode; full?: boolean }) {
+  return (
+    <div className={full ? 'col-span-2 space-y-1' : 'space-y-1'}>
+      <label className="text-[10px] font-bold text-slate-500 uppercase tracking-wider block">{label}</label>
+      {children}
+    </div>
+  );
+}

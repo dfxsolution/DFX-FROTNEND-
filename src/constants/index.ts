@@ -47,23 +47,30 @@ export const CUSTOMER_NAV_ITEMS = [
 // with no staffModule (Dashboard, Appointments, Staff Users, Settings) are
 // never shown to Staff, matching the backend's require_admin_only there.
 export const ADMIN_NAV_ITEMS = [
-  { key: 'dashboard', icon: 'LayoutDashboard', label: 'Dashboard', path: '/admin', ready: true, staffModule: null },
-  { key: 'gold-rate', icon: 'Gem', label: 'Gold Rate', path: '/admin/gold-rate', ready: true, staffModule: 'gold_rate' },
-  { key: 'customers', icon: 'Users', label: 'Customers', path: '/admin/customers', ready: true, staffModule: 'customers' },
-  { key: 'kyc', icon: 'ShieldCheck', label: 'KYC Review', path: '/admin/kyc', ready: true, staffModule: 'kyc' },
-  { key: 'schemes', icon: 'Coins', label: 'Schemes', path: '/admin/schemes', ready: true, staffModule: 'schemes' },
-  { key: 'enrollments', icon: 'UserPlus', label: 'Enrollments', path: '/admin/enrollments', ready: true, staffModule: 'enrollments' },
-  { key: 'payments', icon: 'CreditCard', label: 'Payments', path: '/admin/payments', ready: true, staffModule: 'payments' },
-  { key: 'catalogue', icon: 'Tag', label: 'Catalogue Studio', path: '/admin/catalogue', ready: true, staffModule: 'catalogue' },
-  { key: 'appointments', icon: 'Calendar', label: 'Appointments', path: '/admin/appointments', ready: true, staffModule: null },
-  { key: 'marketing', icon: 'Megaphone', label: 'Marketing', path: '/admin/marketing', ready: true, staffModule: 'marketing' },
-  { key: 'reports', icon: 'TrendingUp', label: 'Reports', path: '/admin/reports', ready: true, staffModule: 'reports' },
-  { key: 'analytics', icon: 'BarChart3', label: 'Analytics', path: '/admin/analytics', ready: true, staffModule: 'analytics' },
-  { key: 'branches', icon: 'Store', label: 'Branches', path: '/admin/branches', ready: true, staffModule: 'branches' },
-  { key: 'users', icon: 'UserCheck', label: 'Staff Users', path: '/admin/users', ready: true, staffModule: null },
-  { key: 'support', icon: 'LifeBuoy', label: 'Support', path: '/admin/support', ready: true, staffModule: 'support' },
-  { key: 'notifications', icon: 'Bell', label: 'Notifications', path: '/admin/notifications', ready: true, staffModule: 'notifications' },
-  { key: 'settings', icon: 'Settings', label: 'Settings', path: '/admin/settings', ready: true, staffModule: null },
+  { key: 'dashboard', icon: 'LayoutDashboard', label: 'Dashboard', path: '/admin', ready: true, staffModule: null, group: null },
+  { key: 'gold-rate', icon: 'Gem', label: 'Gold Rate', path: '/admin/gold-rate', ready: true, staffModule: 'gold_rate', group: null },
+  { key: 'customers', icon: 'Users', label: 'Customers', path: '/admin/customers', ready: true, staffModule: 'customers', group: null },
+  { key: 'kyc', icon: 'ShieldCheck', label: 'KYC Review', path: '/admin/kyc', ready: true, staffModule: 'kyc', group: null },
+  { key: 'schemes', icon: 'Coins', label: 'Schemes', path: '/admin/schemes', ready: true, staffModule: 'schemes', group: null },
+  { key: 'enrollments', icon: 'UserPlus', label: 'Enrollments', path: '/admin/enrollments', ready: true, staffModule: 'enrollments', group: null },
+  { key: 'payments', icon: 'CreditCard', label: 'Payments', path: '/admin/payments', ready: true, staffModule: 'payments', group: null },
+  // Billing System — Inventory (Product Master) + Selling + Sales History.
+  // Three flat entries sharing group: 'Billing' so AdminSidebar renders them
+  // under one collapsible section; StaffAccessGuard's longest-path-prefix
+  // match works unchanged since each has its own real, distinct route.
+  { key: 'billing-inventory', icon: 'Boxes', label: 'Inventory', path: '/admin/billing/inventory', ready: true, staffModule: 'billing', group: 'Billing' },
+  { key: 'billing-sell', icon: 'Calculator', label: 'New Sale', path: '/admin/billing/sell', ready: true, staffModule: 'billing', group: 'Billing' },
+  { key: 'billing-history', icon: 'Receipt', label: 'Sales History', path: '/admin/billing/history', ready: true, staffModule: 'billing', group: 'Billing' },
+  { key: 'catalogue', icon: 'Tag', label: 'Catalogue Studio', path: '/admin/catalogue', ready: true, staffModule: 'catalogue', group: null },
+  { key: 'appointments', icon: 'Calendar', label: 'Appointments', path: '/admin/appointments', ready: true, staffModule: null, group: null },
+  { key: 'marketing', icon: 'Megaphone', label: 'Marketing', path: '/admin/marketing', ready: true, staffModule: 'marketing', group: null },
+  { key: 'reports', icon: 'TrendingUp', label: 'Reports', path: '/admin/reports', ready: true, staffModule: 'reports', group: null },
+  { key: 'analytics', icon: 'BarChart3', label: 'Analytics', path: '/admin/analytics', ready: true, staffModule: 'analytics', group: null },
+  { key: 'branches', icon: 'Store', label: 'Branches', path: '/admin/branches', ready: true, staffModule: 'branches', group: null },
+  { key: 'users', icon: 'UserCheck', label: 'Staff Users', path: '/admin/users', ready: true, staffModule: null, group: null },
+  { key: 'support', icon: 'LifeBuoy', label: 'Support', path: '/admin/support', ready: true, staffModule: 'support', group: null },
+  { key: 'notifications', icon: 'Bell', label: 'Notifications', path: '/admin/notifications', ready: true, staffModule: 'notifications', group: null },
+  { key: 'settings', icon: 'Settings', label: 'Settings', path: '/admin/settings', ready: true, staffModule: null, group: null },
 ] as const;
 
 export const SUPER_ADMIN_NAV_ITEMS = [

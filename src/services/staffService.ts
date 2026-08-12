@@ -44,6 +44,7 @@ export const STAFF_MODULES = [
   { key: 'analytics', label: 'Analytics' },
   { key: 'branches', label: 'Branches' },
   { key: 'support', label: 'Support' },
+  { key: 'billing', label: 'Billing (Inventory & Selling)' },
 ] as const;
 
 export type StaffModuleKey = typeof STAFF_MODULES[number]['key'];

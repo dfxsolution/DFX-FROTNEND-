@@ -1,0 +1,66 @@
+import React from 'react';
+import { PriceBreakdown } from '@/services/billingService';
+import { formatCurrency } from '@/lib/formatters';
+
+interface Row {
+  label: string;
+  value: string;
+  emphasis?: boolean;
+  muted?: boolean;
+}
+
+function chargeLabel(type: string, value: number): string {
+  if (type === 'PERCENTAGE') return `${value}%`;
+  if (type === 'PER_GRAM') return `${formatCurrency(value)}/g`;
+  return formatCurrency(value);
+}
+
+export function PriceBreakdownCard({
+  breakdown,
+  margin,
+}: {
+  breakdown: PriceBreakdown;
+  margin?: { purchaseCost: number | null; estimatedGrossMargin: number | null } | null;
+}) {
+  const rows: Row[] = [
+    { label: `Gold Value (${breakdown.netGoldWeightGrams.toFixed(3)}g × ${formatCurrency(breakdown.goldRateApplied)}/g)`, value: formatCurrency(breakdown.goldValueAmount) },
+    { label: `Making Charge (${chargeLabel(breakdown.makingChargeType, breakdown.makingChargeValue)})`, value: formatCurrency(breakdown.makingChargeAmount) },
+    { label: `Wastage (${chargeLabel(breakdown.wastageType, breakdown.wastageValue)})`, value: formatCurrency(breakdown.wastageAmount) },
+    { label: 'Stone Charge', value: formatCurrency(breakdown.stoneChargeAmount) },
+    { label: 'Other Charges', value: formatCurrency(breakdown.otherChargesAmount) },
+    { label: 'Subtotal', value: formatCurrency(breakdown.subtotalBeforeTax), muted: true },
+    { label: `Tax / GST (${breakdown.taxRatePercent}%)`, value: formatCurrency(breakdown.taxAmount) },
+    ...(breakdown.discountAmount > 0
+      ? [{ label: 'Discount', value: `− ${formatCurrency(breakdown.discountAmount)}` }]
+      : []),
+  ];
+
+  return (
+    <div className="rounded-2xl border border-slate-200 bg-white overflow-hidden">
+      <div className="px-4 py-3 bg-slate-50 border-b border-slate-200 flex items-center justify-between">
+        <span className="text-[11px] font-bold uppercase tracking-wider text-slate-500">Price Breakdown</span>
+        <span className="text-[10px] font-semibold text-slate-400">
+          {breakdown.goldRateSource} rate · {breakdown.goldRateEffectiveDate}
+        </span>
+      </div>
+      <div className="p-4 space-y-2">
+        {rows.map((row) => (
+          <div key={row.label} className={`flex items-center justify-between text-xs ${row.muted ? 'pt-2 border-t border-slate-100 font-bold text-[#0B0E23]' : 'font-medium text-slate-600'}`}>
+            <span>{row.label}</span>
+            <span className="font-mono">{row.value}</span>
+          </div>
+        ))}
+        <div className="flex items-center justify-between pt-3 border-t-2 border-gold/30">
+          <span className="text-sm font-bold text-[#0B0E23]">Final Amount</span>
+          <span className="font-display font-extrabold text-2xl text-gold-dark">{formatCurrency(breakdown.finalAmount)}</span>
+        </div>
+        {margin && margin.estimatedGrossMargin !== null && (
+          <div className="flex items-center justify-between pt-2 mt-1 border-t border-dashed border-slate-200 text-[11px] font-semibold text-slate-400">
+            <span>Estimated gross margin (internal)</span>
+            <span className="font-mono">{formatCurrency(margin.estimatedGrossMargin)}</span>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
