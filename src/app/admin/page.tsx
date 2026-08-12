@@ -17,11 +17,13 @@ import {
   UserPlus,
   ShoppingBag,
   FileSpreadsheet,
-  Clock,
   ArrowRight,
   Scale,
-  Target
+  Receipt,
+  Gem,
+  PackageCheck
 } from 'lucide-react';
+import { billingService, BillingDashboardSummary } from '@/services/billingService';
 import {
   AreaChart,
   Area,
@@ -96,15 +98,6 @@ function GrowthPill({ value }: { value: number | null }) {
   );
 }
 
-interface ActivityItem {
-  id: string;
-  title: string;
-  desc: string;
-  time: string;
-  icon: React.ElementType;
-  color: string;
-}
-
 export default function AdminDashboardPage() {
   const router = useRouter();
   const { user } = useAuth();
@@ -137,6 +130,19 @@ export default function AdminDashboardPage() {
   const [goldRateTrend, setGoldRateTrend] = useState<GoldRateTrendReport | null>(null);
   const [enrollments, setEnrollments] = useState<AdminEnrollment[]>([]);
   const [payments, setPayments] = useState<AdminPayment[]>([]);
+
+  // Separate from the main dashboard load — a Staff account without the
+  // "billing" module gets a 403 here, which must not break the rest of the
+  // dashboard (see billing_service.py's require_admin_or_staff_module).
+  const [billingSummary, setBillingSummary] = useState<BillingDashboardSummary | null>(null);
+  const [billingLoading, setBillingLoading] = useState(true);
+
+  useEffect(() => {
+    billingService.getDashboardSummary()
+      .then(setBillingSummary)
+      .catch(() => setBillingSummary(null))
+      .finally(() => setBillingLoading(false));
+  }, []);
 
   const loadDashboard = async () => {
     setLoading(true);
@@ -242,36 +248,6 @@ export default function AdminDashboardPage() {
     },
   ];
 
-  const insights = [
-    {
-      label: "Today's Collections",
-      val: dashToday ? formatCurrency(dashToday.totalRevenue) : '—',
-      badge: 'Live',
-      icon: CreditCard,
-      color: 'border-emerald-200 bg-emerald-50/50',
-    },
-    // No Appointments/bookings backend exists yet — honest placeholder, not fabricated.
-    { label: "Today's Visits", val: '—', badge: 'Not tracked', icon: Calendar, color: 'border-teal-200 bg-teal-50/50' },
-    {
-      label: 'Pending Installments',
-      val: paymentAllTime ? `${paymentAllTime.pendingPaymentCount.toLocaleString('en-IN')} Due` : '—',
-      badge: 'All-Time',
-      icon: Clock,
-      color: 'border-amber-200 bg-amber-50/50',
-    },
-    // No installment due-date schedule exists per enrollment yet — honest placeholder, not fabricated.
-    { label: 'Customers Due Today', val: '—', badge: 'Not tracked', icon: Users, color: 'border-blue-200 bg-blue-50/50' },
-    {
-      label: 'Gold Rate Movement',
-      val: goldRateChange !== null ? `${goldRateChange > 0 ? '+' : ''}${goldRateChange.toFixed(2)}%` : '—',
-      badge: '24K Rate',
-      icon: TrendingUp,
-      color: 'border-amber-200 bg-amber-50/50',
-    },
-    // No target-setting feature exists anywhere in the schema — honest placeholder, not fabricated.
-    { label: 'Monthly Target', val: '—', badge: 'Not tracked', icon: Target, color: 'border-emerald-200 bg-emerald-50/50' },
-  ];
-
   // "Target" has no backing data (no target-setting feature exists) — every
   // point gets a null value so the dashed target line simply doesn't draw,
   // same treatment Module 12 used for chart series with no real data source.
@@ -284,31 +260,6 @@ export default function AdminDashboardPage() {
   const schemeDistribution = (schemeSummary?.schemes ?? [])
     .filter((s) => s.activeEnrollments > 0)
     .map((s, idx) => ({ name: s.schemeName, value: s.activeEnrollments, color: SCHEME_COLORS[idx % SCHEME_COLORS.length] }));
-
-  // Recent Enrollments + Recent Payments merged into one real activity feed,
-  // replacing the old showroom-sync/VIP-booking mock entries that had no
-  // backend equivalent at all. Both source lists already come back
-  // newest-first from the backend. No exact timestamps are available client
-  // side (only plain dates), so entries show a date rather than a fabricated
-  // "X mins ago".
-  const recentActivity: ActivityItem[] = [
-    ...enrollments.slice(0, 3).map((e) => ({
-      id: `enr-${e.id}`,
-      title: 'Customer joined a scheme',
-      desc: `${e.customerName} enrolled in ${e.schemeName}`,
-      time: new Date(e.joinedDate).toLocaleDateString('en-IN', { dateStyle: 'medium' }),
-      icon: Coins,
-      color: 'text-amber-600 bg-amber-50 border-amber-200',
-    })),
-    ...payments.slice(0, 3).map((p) => ({
-      id: `pay-${p.id}`,
-      title: `Payment received via ${p.paymentMethod.replace('_', ' ')}`,
-      desc: `${formatCurrency(p.amount)} — ${p.customerName}, ${p.schemeName}`,
-      time: new Date(p.paymentDate).toLocaleDateString('en-IN', { dateStyle: 'medium' }),
-      icon: CreditCard,
-      color: 'text-emerald-600 bg-emerald-50 border-emerald-200',
-    })),
-  ];
 
   return (
     <div className="space-y-6 animate-in fade-in duration-300 font-body">
@@ -420,24 +371,8 @@ export default function AdminDashboardPage() {
         })}
       </div>
 
-      {/* 3. COMPACT BUSINESS INSIGHTS CARDS */}
-      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
-        {insights.map((item, idx) => {
-          const IconComp = item.icon;
-          return (
-            <div key={idx} className={`p-3.5 rounded-2xl border ${item.color} flex flex-col justify-between space-y-2`}>
-              <div className="flex items-center justify-between text-[10px] font-bold text-slate-500 uppercase">
-                <span className="truncate">{item.label}</span>
-                <IconComp className="w-3.5 h-3.5 text-slate-400 shrink-0" />
-              </div>
-              <div>
-                <div className="text-base font-extrabold text-[#0B0E23] font-display">{item.val}</div>
-                <div className="text-[10px] text-slate-500 font-semibold mt-0.5">{item.badge}</div>
-              </div>
-            </div>
-          );
-        })}
-      </div>
+      {/* 3. BILLING BUSINESS SUMMARY — replaces the old insights-placeholder row */}
+      <BillingSummarySection loading={billingLoading} summary={billingSummary} />
 
       {/* 4. QUICK ACTIONS WITH DESCRIPTION */}
       <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
@@ -575,34 +510,37 @@ export default function AdminDashboardPage() {
       {/* 7. LIVE STORE ACTIVITY & RECENT TRANSACTIONS */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
 
-        {/* Activity Timeline (1 Col) — real recent enrollments + payments */}
+        {/* Recent Sales (1 Col) — real Billing sales, replaces the old
+            enrollments/payments activity mirror which just repeated the
+            Recent Payments table beside it. */}
         <Card className="p-5 border-slate-200 bg-white shadow-xs">
           <CardHeader className="p-0 mb-4 flex flex-row items-center justify-between">
             <CardTitle className="text-base font-bold text-[#0B0E23]">
-              Live Store Activity
+              Recent Sales
             </CardTitle>
-            <Clock className="w-4 h-4 text-slate-400" />
+            <Receipt className="w-4 h-4 text-slate-400" />
           </CardHeader>
           <CardContent className="p-0">
-            {recentActivity.length === 0 ? (
-              <p className="text-xs text-slate-400 font-medium py-4 text-center">No recent activity yet</p>
+            {!billingSummary || billingSummary.recentSales.length === 0 ? (
+              <p className="text-xs text-slate-400 font-medium py-4 text-center">No sales yet</p>
             ) : (
-              <div className="space-y-3.5 relative before:absolute before:left-4 before:top-2 before:bottom-2 before:w-0.5 before:bg-slate-100">
-                {recentActivity.map((act) => {
-                  const IconComp = act.icon;
-                  return (
-                    <div key={act.id} className="flex items-start gap-3 relative z-10">
-                      <div className={`p-2 rounded-xl border shrink-0 ${act.color}`}>
-                        <IconComp className="w-3.5 h-3.5" />
-                      </div>
-                      <div className="flex-1">
-                        <div className="text-xs font-bold text-[#0B0E23]">{act.title}</div>
-                        <div className="text-[11px] text-slate-500 font-medium leading-snug">{act.desc}</div>
-                        <div className="text-[10px] text-slate-400 mt-0.5 font-mono">{act.time}</div>
-                      </div>
+              <div className="space-y-3.5">
+                {billingSummary.recentSales.map((s) => (
+                  <div key={s.id} className="flex items-start justify-between gap-2">
+                    <div className="min-w-0">
+                      <div className="text-xs font-bold text-[#0B0E23] truncate">{s.productName}</div>
+                      <div className="text-[11px] text-slate-500 font-medium">{s.customerName || 'Walk-in'} · {s.invoiceNumber}</div>
                     </div>
-                  );
-                })}
+                    <div className="text-right shrink-0">
+                      <div className="text-xs font-mono font-bold text-[#0B0E23]">{formatCurrency(s.finalAmount)}</div>
+                      {s.profitOrLoss !== null && (
+                        <div className={`text-[10px] font-bold ${s.profitOrLoss >= 0 ? 'text-emerald-600' : 'text-red-600'}`}>
+                          {s.profitOrLoss >= 0 ? '🟢' : '🔴'} {formatCurrency(Math.abs(s.profitOrLoss))}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                ))}
               </div>
             )}
           </CardContent>
@@ -670,6 +608,74 @@ export default function AdminDashboardPage() {
 
       {toastMsg && (
         <Toast message={toastMsg} onClose={() => setToastMsg(null)} />
+      )}
+    </div>
+  );
+}
+
+/**
+ * Real Billing data only — no fake numbers, no mock records. If the Admin
+ * simply has no billing access (Staff without the "billing" module) the
+ * fetch 403s and `summary` stays null; that's shown as nothing rather than
+ * an error, since it's expected, not a failure.
+ */
+function BillingSummarySection({ loading, summary }: { loading: boolean; summary: BillingDashboardSummary | null }) {
+  if (loading) {
+    return (
+      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
+        {[...Array(6)].map((_, i) => <Skeleton key={i} className="h-24 w-full" />)}
+      </div>
+    );
+  }
+  if (!summary) return null;
+
+  const { today, thisMonth, todayGoldRate24k, recentSales } = summary;
+  const hasToday = today.billCount > 0;
+
+  const cards = [
+    { label: "Today's Sales", val: formatCurrency(today.totalSales), icon: Receipt, color: 'text-blue-600 bg-blue-50 border-blue-200' },
+    { label: "Today's Profit", val: `🟢 ${formatCurrency(today.totalProfit)}`, icon: TrendingUp, color: 'text-emerald-600 bg-emerald-50 border-emerald-200' },
+    { label: "Today's Loss", val: `🔴 ${formatCurrency(today.totalLoss)}`, icon: TrendingUp, color: 'text-red-600 bg-red-50 border-red-200' },
+    { label: "Today's Bills", val: String(today.billCount), icon: PackageCheck, color: 'text-amber-600 bg-amber-50 border-amber-200' },
+    { label: 'Items Sold', val: String(today.itemsSold), icon: ShoppingBag, color: 'text-teal-600 bg-teal-50 border-teal-200' },
+    { label: "Today's Gold Rate", val: todayGoldRate24k !== null ? `${formatCurrency(todayGoldRate24k)}/g` : 'Not set', icon: Gem, color: 'text-gold bg-gold/10 border-gold/30' },
+  ];
+
+  return (
+    <div className="space-y-4">
+      <div>
+        <h2 className="font-display font-bold text-base text-[#0B0E23]">Today&apos;s Business</h2>
+        {!hasToday && <p className="text-xs text-slate-400 font-medium mt-0.5">No sales today.</p>}
+      </div>
+
+      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
+        {cards.map((c, idx) => {
+          const IconComp = c.icon;
+          return (
+            <div key={idx} className={`p-3.5 rounded-2xl border ${c.color} flex flex-col justify-between space-y-2`}>
+              <div className="flex items-center justify-between text-[10px] font-bold text-slate-500 uppercase">
+                <span className="truncate">{c.label}</span>
+                <IconComp className="w-3.5 h-3.5 shrink-0" />
+              </div>
+              <div className="text-base font-extrabold text-[#0B0E23] font-display">{c.val}</div>
+            </div>
+          );
+        })}
+      </div>
+
+      {thisMonth.billCount > 0 && (
+        <div className="bg-white p-4 rounded-2xl border border-slate-200 shadow-xs flex flex-wrap items-center gap-x-6 gap-y-2 text-xs">
+          <span className="font-bold text-slate-500 uppercase tracking-wider text-[10px]">This Month</span>
+          <span className="font-mono font-bold text-[#0B0E23]">Sales {formatCurrency(thisMonth.totalSales)}</span>
+          <span className="font-mono font-bold text-emerald-600">🟢 Profit {formatCurrency(thisMonth.totalProfit)}</span>
+          {thisMonth.totalLoss > 0 && <span className="font-mono font-bold text-red-600">🔴 Loss {formatCurrency(thisMonth.totalLoss)}</span>}
+          <span className="font-mono font-bold text-slate-600">{thisMonth.itemsSold} items sold</span>
+          <span className="font-mono font-bold text-slate-600">{thisMonth.billCount} bills</span>
+        </div>
+      )}
+
+      {recentSales.length === 0 && hasToday === false && thisMonth.billCount === 0 && (
+        <p className="text-xs text-slate-400 font-medium text-center py-2">No sales recorded yet.</p>
       )}
     </div>
   );

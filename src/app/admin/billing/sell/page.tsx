@@ -27,13 +27,14 @@ export default function NewSalePage() {
   const [scanError, setScanError] = useState('');
 
   const [quote, setQuote] = useState<SaleQuote | null>(null);
-  const [discountInput, setDiscountInput] = useState('0');
+  const [customerPrice, setCustomerPrice] = useState('');
+  const [gstApplied, setGstApplied] = useState(true);
   const [recalculating, setRecalculating] = useState(false);
+  const [priceError, setPriceError] = useState('');
 
   const [customerName, setCustomerName] = useState('');
   const [customerPhone, setCustomerPhone] = useState('');
   const [customerId, setCustomerId] = useState('');
-  const [proposedPrice, setProposedPrice] = useState('');
   const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>('CASH');
   const [paymentStatus, setPaymentStatus] = useState<PaymentStatus>('PAID');
   const [confirmOpen, setConfirmOpen] = useState(false);
@@ -51,9 +52,10 @@ export default function NewSalePage() {
     setScanError('');
     setStage('loading');
     try {
-      const q = await billingService.getSaleQuote(trimmed, 0);
+      const q = await billingService.getSaleQuote(trimmed, 0, true);
       setQuote(q);
-      setDiscountInput('0');
+      setCustomerPrice(String(q.breakdown.finalAmount));
+      setGstApplied(true);
       setStage('review');
     } catch (err) {
       setScanError(err instanceof ApiError ? err.message : 'Could not load this product.');
@@ -61,16 +63,22 @@ export default function NewSalePage() {
     }
   };
 
-  const handleDiscountBlur = async () => {
+  /** Every change to the price or the GST switch is re-verified against the
+   * backend's own deterministic calculation — the numbers shown are never
+   * computed purely client-side. */
+  const recalculate = async (nextPrice: string, nextGst: boolean) => {
     if (!quote) return;
-    const discount = parseFloat(discountInput) || 0;
+    const parsed = parseFloat(nextPrice);
+    const hasPrice = nextPrice.trim() !== '' && !isNaN(parsed);
     setRecalculating(true);
+    setPriceError('');
     try {
-      const q = await billingService.getSaleQuote(quote.inventoryItem.productCode, discount);
+      const q = await billingService.getSaleQuote(
+        quote.inventoryItem.productCode, 0, nextGst, hasPrice ? parsed : undefined
+      );
       setQuote(q);
     } catch (err) {
-      setToast({ message: err instanceof ApiError ? err.message : 'Could not apply discount', type: 'error' });
-      setDiscountInput(String(quote.breakdown.discountAmount));
+      setPriceError(err instanceof ApiError ? err.message : 'Could not recalculate.');
     } finally {
       setRecalculating(false);
     }
@@ -80,10 +88,11 @@ export default function NewSalePage() {
     setStage('scan');
     setCode('');
     setQuote(null);
+    setCustomerPrice('');
+    setGstApplied(true);
     setCustomerName('');
     setCustomerPhone('');
     setCustomerId('');
-    setProposedPrice('');
     setPaymentMethod('CASH');
     setPaymentStatus('PAID');
     setCompletedSale(null);
@@ -98,12 +107,14 @@ export default function NewSalePage() {
     setCompleteError('');
     setCompleting(true);
     try {
+      const parsedPrice = parseFloat(customerPrice);
       const sale = await billingService.createSale({
         productCode: quote.inventoryItem.productCode,
         customerId: customerId.trim() || undefined,
         customerName: customerName.trim() || undefined,
         customerPhone: customerPhone.trim() || undefined,
-        discountAmount: quote.breakdown.discountAmount,
+        customerPrice: !isNaN(parsedPrice) ? parsedPrice : undefined,
+        gstApplied,
         paymentMethod,
         paymentStatus,
       });
@@ -126,7 +137,7 @@ export default function NewSalePage() {
         <div>
           <h1 className="font-display font-extrabold text-2xl text-[#0B0E23]">New Sale</h1>
           <p className="text-xs text-slate-500 mt-0.5 font-medium">
-            Scan or enter a Product Code to load pricing instantly from the current live gold rate.
+            Scan or enter a Product Code to load pricing instantly from today&apos;s gold rate.
           </p>
         </div>
       </div>
@@ -187,15 +198,36 @@ export default function NewSalePage() {
             </Button>
           </Card>
 
-          {quote.inventoryItem.purchaseCost !== null && (
-            <PriceComparisonCard
-              purchaseCost={quote.inventoryItem.purchaseCost}
-              currentGoldValue={quote.breakdown.goldValueAmount}
-              configuredSellingPrice={quote.breakdown.finalAmount}
-              proposedPrice={proposedPrice}
-              onProposedPriceChange={setProposedPrice}
-            />
-          )}
+          <PriceComparisonPanel
+            purchaseCost={quote.inventoryItem.purchaseCost}
+            todaysGoldValue={quote.breakdown.goldValueAmount}
+            sellingPrice={quote.breakdown.subtotalBeforeTax + quote.breakdown.taxAmount}
+            customerPrice={customerPrice}
+            onCustomerPriceChange={setCustomerPrice}
+            onCustomerPriceCommit={(v) => recalculate(v, gstApplied)}
+            recalculating={recalculating}
+            error={priceError}
+          />
+
+          <div className="rounded-2xl border border-slate-200 bg-white p-4 flex items-center justify-between gap-3">
+            <span className="text-xs font-bold text-slate-600">GST on this bill</span>
+            <div className="flex rounded-xl border border-slate-200 overflow-hidden">
+              <button
+                type="button"
+                onClick={() => { setGstApplied(true); recalculate(customerPrice, true); }}
+                className={`px-4 py-2 text-xs font-bold transition-colors ${gstApplied ? 'bg-gold text-white' : 'bg-white text-slate-500 hover:bg-slate-50'}`}
+              >
+                With GST
+              </button>
+              <button
+                type="button"
+                onClick={() => { setGstApplied(false); recalculate(customerPrice, false); }}
+                className={`px-4 py-2 text-xs font-bold transition-colors border-l border-slate-200 ${!gstApplied ? 'bg-gold text-white' : 'bg-white text-slate-500 hover:bg-slate-50'}`}
+              >
+                Without GST
+              </button>
+            </div>
+          </div>
 
           <div className="grid sm:grid-cols-2 gap-3">
             <div className="space-y-1">
@@ -203,25 +235,14 @@ export default function NewSalePage() {
               <Input value={customerName} onChange={(e) => setCustomerName(e.target.value)} placeholder="Walk-in customer name" />
             </div>
             <div className="space-y-1">
-              <label className="text-[10px] font-bold text-slate-500 uppercase tracking-wider block">Customer Phone</label>
+              <label className="text-[10px] font-bold text-slate-500 uppercase tracking-wider block">Mobile</label>
               <Input value={customerPhone} onChange={(e) => setCustomerPhone(e.target.value)} placeholder="+91 90000 00000" />
             </div>
             <div className="space-y-1">
               <label className="text-[10px] font-bold text-slate-500 uppercase tracking-wider block">Existing Customer ID (optional)</label>
               <Input value={customerId} onChange={(e) => setCustomerId(e.target.value)} placeholder="usr_..." />
             </div>
-            <div className="space-y-1">
-              <label className="text-[10px] font-bold text-slate-500 uppercase tracking-wider block">Discount (₹)</label>
-              <Input
-                type="number"
-                min="0"
-                step="0.01"
-                value={discountInput}
-                disabled={recalculating}
-                onChange={(e) => setDiscountInput(e.target.value)}
-                onBlur={handleDiscountBlur}
-              />
-            </div>
+            <div />
             <div className="space-y-1">
               <label className="text-[10px] font-bold text-slate-500 uppercase tracking-wider block">Payment Method</label>
               <Select value={paymentMethod} onChange={(e) => setPaymentMethod(e.target.value as PaymentMethod)}>
@@ -245,7 +266,7 @@ export default function NewSalePage() {
           )}
 
           <Button className="w-full h-12" disabled={!canConfirm || recalculating} onClick={() => setConfirmOpen(true)}>
-            Complete Sale · {formatCurrency(quote.breakdown.finalAmount)}
+            Save Bill · {formatCurrency(quote.breakdown.finalAmount)}
           </Button>
         </div>
       )}
@@ -256,7 +277,7 @@ export default function NewSalePage() {
             <CheckCircle2 className="h-8 w-8 text-emerald-600" />
           </div>
           <div>
-            <h2 className="font-display font-bold text-lg text-[#0B0E23]">Sale Completed</h2>
+            <h2 className="font-display font-bold text-lg text-[#0B0E23]">Bill Saved</h2>
             <p className="text-xs text-slate-500 mt-1 font-mono">Invoice {completedSale.invoiceNumber}</p>
           </div>
           <p className="font-display font-extrabold text-3xl text-gold-dark">{formatCurrency(completedSale.finalAmount)}</p>
@@ -280,7 +301,7 @@ export default function NewSalePage() {
         </Card>
       )}
 
-      <Dialog isOpen={confirmOpen} onClose={() => !completing && setConfirmOpen(false)} title="Confirm Sale" maxWidth="max-w-md">
+      <Dialog isOpen={confirmOpen} onClose={() => !completing && setConfirmOpen(false)} title="Save Bill" maxWidth="max-w-md">
         {quote && (
           <div className="space-y-3">
             {completeError && (
@@ -296,13 +317,13 @@ export default function NewSalePage() {
               {formatCurrency(quote.breakdown.finalAmount)}
             </p>
             <p className="text-[11px] text-slate-400 text-center">
-              This will permanently mark the item SOLD and create Invoice {quote.inventoryItem.productCode}-style record. This cannot be undone.
+              This will permanently mark the item SOLD and finalize the invoice. This cannot be undone.
             </p>
           </div>
         )}
         <DialogFooter>
           <Button variant="outline" onClick={() => setConfirmOpen(false)} disabled={completing}>Cancel</Button>
-          <Button onClick={handleCompleteSale} isLoading={completing}>Confirm & Complete Sale</Button>
+          <Button onClick={handleCompleteSale} isLoading={completing}>Finalize Sale</Button>
         </DialogFooter>
       </Dialog>
 
@@ -312,59 +333,90 @@ export default function NewSalePage() {
 }
 
 /**
- * Decision-support only — plain arithmetic (difference, margin, margin %),
- * never a recommendation. Must never render language like "you should
- * sell"/"approved"/"profit too low" per the explicit requirement; the
- * Admin decides, this only shows the numbers.
+ * The most important section of the screen. Plain numbers only — never a
+ * recommendation ("you should sell" / "approved" / "profit too low" are
+ * explicitly forbidden). The Admin decides; this only shows Vendor Price,
+ * Today's Gold Value, Selling Price, the editable Customer Price, and
+ * whether that price is a profit or a loss.
  */
-function PriceComparisonCard({
+function PriceComparisonPanel({
   purchaseCost,
-  currentGoldValue,
-  configuredSellingPrice,
-  proposedPrice,
-  onProposedPriceChange,
+  todaysGoldValue,
+  sellingPrice,
+  customerPrice,
+  onCustomerPriceChange,
+  onCustomerPriceCommit,
+  recalculating,
+  error,
 }: {
-  purchaseCost: number;
-  currentGoldValue: number;
-  configuredSellingPrice: number;
-  proposedPrice: string;
-  onProposedPriceChange: (v: string) => void;
+  purchaseCost: number | null;
+  todaysGoldValue: number;
+  sellingPrice: number;
+  customerPrice: string;
+  onCustomerPriceChange: (v: string) => void;
+  onCustomerPriceCommit: (v: string) => void;
+  recalculating: boolean;
+  error: string;
 }) {
-  const proposed = parseFloat(proposedPrice);
-  const hasProposed = !isNaN(proposed) && proposedPrice.trim() !== '';
-  const basisPrice = hasProposed ? proposed : configuredSellingPrice;
-  const difference = basisPrice - configuredSellingPrice;
-  const margin = basisPrice - purchaseCost;
-  const marginPercent = purchaseCost > 0 ? (margin / purchaseCost) * 100 : null;
+  const parsed = parseFloat(customerPrice);
+  const hasPrice = customerPrice.trim() !== '' && !isNaN(parsed);
+  const profitLoss = hasPrice && purchaseCost !== null ? parsed - purchaseCost : null;
+  const difference = hasPrice ? parsed - sellingPrice : null;
+  const isProfit = profitLoss !== null && profitLoss >= 0;
 
   return (
-    <div className="rounded-2xl border border-slate-200 bg-white p-4 space-y-3">
-      <span className="text-[11px] font-bold uppercase tracking-wider text-slate-500">Price Comparison (reference only)</span>
-      <div className="grid grid-cols-2 gap-3 text-xs">
-        <Stat label="Vendor Purchase Cost" value={formatCurrency(purchaseCost)} />
-        <Stat label="Current Gold Value" value={formatCurrency(currentGoldValue)} />
-        <Stat label="Configured Selling Price" value={formatCurrency(configuredSellingPrice)} />
-        <div className="space-y-1">
-          <label className="text-[10px] font-bold text-slate-500 uppercase tracking-wider block">Customer Proposed Price (₹)</label>
-          <Input type="number" step="0.01" min="0" value={proposedPrice} onChange={(e) => onProposedPriceChange(e.target.value)} placeholder="Optional" />
+    <div className="rounded-2xl border border-slate-200 bg-white p-5 space-y-4">
+      <div className="grid grid-cols-2 sm:grid-cols-3 gap-4 text-center sm:text-left">
+        {purchaseCost !== null && (
+          <div>
+            <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Vendor Price</p>
+            <p className="font-mono font-bold text-base text-[#0B0E23]">{formatCurrency(purchaseCost)}</p>
+          </div>
+        )}
+        <div>
+          <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Today&apos;s Gold Value</p>
+          <p className="font-mono font-bold text-base text-[#0B0E23]">{formatCurrency(todaysGoldValue)}</p>
+        </div>
+        <div>
+          <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Selling Price</p>
+          <p className="font-mono font-bold text-base text-[#0B0E23]">{formatCurrency(sellingPrice)}</p>
         </div>
       </div>
-      {hasProposed && (
-        <div className="grid grid-cols-3 gap-3 text-xs pt-2 border-t border-slate-100">
-          <Stat label="Difference vs Configured" value={formatCurrency(difference)} />
-          <Stat label="Estimated Gross Margin" value={formatCurrency(margin)} />
-          <Stat label="Estimated Margin %" value={marginPercent !== null ? `${marginPercent.toFixed(1)}%` : '—'} />
+
+      <div className="pt-3 border-t border-slate-100 space-y-2">
+        <label className="text-xs font-bold text-slate-700 uppercase tracking-wider block">Customer Price</label>
+        <Input
+          type="number"
+          step="0.01"
+          min="0"
+          value={customerPrice}
+          disabled={recalculating}
+          onChange={(e) => onCustomerPriceChange(e.target.value)}
+          onBlur={(e) => onCustomerPriceCommit(e.target.value)}
+          className="text-center text-2xl font-mono font-extrabold h-16"
+          placeholder="₹0"
+        />
+        {error && <p className="text-xs font-medium text-red-600">{error}</p>}
+      </div>
+
+      {hasPrice && (
+        <div className="grid grid-cols-2 gap-3 pt-2">
+          <div className="rounded-xl bg-slate-50 p-3 text-center">
+            <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Difference</p>
+            <p className="font-mono font-bold text-sm text-[#0B0E23]">{formatCurrency(difference ?? 0)}</p>
+          </div>
+          {profitLoss !== null && (
+            <div className={`rounded-xl p-3 text-center border ${isProfit ? 'bg-emerald-50 border-emerald-200' : 'bg-red-50 border-red-200'}`}>
+              <p className={`text-[10px] font-bold uppercase tracking-wider ${isProfit ? 'text-emerald-700' : 'text-red-700'}`}>
+                {isProfit ? '🟢 Profit' : '🔴 Loss'}
+              </p>
+              <p className={`font-mono font-extrabold text-sm ${isProfit ? 'text-emerald-700' : 'text-red-700'}`}>
+                {formatCurrency(Math.abs(profitLoss))}
+              </p>
+            </div>
+          )}
         </div>
       )}
-    </div>
-  );
-}
-
-function Stat({ label, value }: { label: string; value: string }) {
-  return (
-    <div className="space-y-0.5">
-      <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">{label}</p>
-      <p className="font-mono font-bold text-[#0B0E23]">{value}</p>
     </div>
   );
 }

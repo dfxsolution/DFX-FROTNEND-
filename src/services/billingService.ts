@@ -233,6 +233,7 @@ export interface PriceBreakdown {
   stoneChargeAmount: number;
   otherChargesAmount: number;
   subtotalBeforeTax: number;
+  gstApplied: boolean;
   taxRatePercent: number;
   taxAmount: number;
   discountAmount: number;
@@ -257,6 +258,7 @@ interface BackendPriceBreakdown {
   stone_charge_amount: number;
   other_charges_amount: number;
   subtotal_before_tax: number;
+  gst_applied: boolean;
   tax_rate_percent: number;
   tax_amount: number;
   discount_amount: number;
@@ -282,6 +284,7 @@ function mapBreakdown(raw: BackendPriceBreakdown): PriceBreakdown {
     stoneChargeAmount: raw.stone_charge_amount,
     otherChargesAmount: raw.other_charges_amount,
     subtotalBeforeTax: raw.subtotal_before_tax,
+    gstApplied: raw.gst_applied,
     taxRatePercent: raw.tax_rate_percent,
     taxAmount: raw.tax_amount,
     discountAmount: raw.discount_amount,
@@ -300,6 +303,8 @@ export interface SaleCreateData {
   customerName?: string;
   customerPhone?: string;
   discountAmount?: number;
+  customerPrice?: number;
+  gstApplied?: boolean;
   paymentMethod?: PaymentMethod;
   paymentStatus?: PaymentStatus;
 }
@@ -437,6 +442,90 @@ async function downloadBlob(path: string, filename: string): Promise<void> {
   URL.revokeObjectURL(url);
 }
 
+/* ------------------------------------------------------------------ */
+/* Dashboard Billing Summary                                          */
+/* ------------------------------------------------------------------ */
+
+export interface BillingPeriodSummary {
+  totalSales: number;
+  totalProfit: number;
+  totalLoss: number;
+  billCount: number;
+  itemsSold: number;
+}
+
+export interface RecentSale {
+  id: string;
+  invoiceNumber: string;
+  customerName: string | null;
+  productCode: string;
+  productName: string;
+  finalAmount: number;
+  profitOrLoss: number | null;
+  saleTimestamp: string;
+}
+
+export interface BillingDashboardSummary {
+  today: BillingPeriodSummary;
+  thisMonth: BillingPeriodSummary;
+  todayGoldRate24k: number | null;
+  recentSales: RecentSale[];
+}
+
+interface BackendBillingPeriodSummary {
+  total_sales: number;
+  total_profit: number;
+  total_loss: number;
+  bill_count: number;
+  items_sold: number;
+}
+
+interface BackendRecentSale {
+  id: string;
+  invoice_number: string;
+  customer_name: string | null;
+  product_code: string;
+  product_name: string;
+  final_amount: number;
+  profit_or_loss: number | null;
+  sale_timestamp: string;
+}
+
+interface BackendBillingDashboardSummary {
+  today: BackendBillingPeriodSummary;
+  this_month: BackendBillingPeriodSummary;
+  today_gold_rate_24k: number | null;
+  recent_sales: BackendRecentSale[];
+}
+
+function mapPeriodSummary(raw: BackendBillingPeriodSummary): BillingPeriodSummary {
+  return {
+    totalSales: raw.total_sales,
+    totalProfit: raw.total_profit,
+    totalLoss: raw.total_loss,
+    billCount: raw.bill_count,
+    itemsSold: raw.items_sold,
+  };
+}
+
+function mapDashboardSummary(raw: BackendBillingDashboardSummary): BillingDashboardSummary {
+  return {
+    today: mapPeriodSummary(raw.today),
+    thisMonth: mapPeriodSummary(raw.this_month),
+    todayGoldRate24k: raw.today_gold_rate_24k,
+    recentSales: raw.recent_sales.map((s) => ({
+      id: s.id,
+      invoiceNumber: s.invoice_number,
+      customerName: s.customer_name,
+      productCode: s.product_code,
+      productName: s.product_name,
+      finalAmount: s.final_amount,
+      profitOrLoss: s.profit_or_loss,
+      saleTimestamp: s.sale_timestamp,
+    })),
+  };
+}
+
 export const billingService = {
   /* Vendors */
   async listVendors(search?: string): Promise<Vendor[]> {
@@ -562,8 +651,14 @@ export const billingService = {
   },
 
   /* Selling */
-  async getSaleQuote(productCode: string, discountAmount = 0): Promise<SaleQuote> {
-    const query = new URLSearchParams({ discount_amount: String(discountAmount) });
+  async getSaleQuote(
+    productCode: string,
+    discountAmount = 0,
+    gstApplied = true,
+    customerPrice?: number
+  ): Promise<SaleQuote> {
+    const query = new URLSearchParams({ discount_amount: String(discountAmount), gst_applied: String(gstApplied) });
+    if (customerPrice !== undefined) query.set('customer_price', String(customerPrice));
     const res = await apiClient.get<{ inventory_item: BackendInventoryItem; breakdown: BackendPriceBreakdown }>(
       `/billing/sell/quote/${encodeURIComponent(productCode)}?${query.toString()}`,
       { auth: true }
@@ -583,6 +678,8 @@ export const billingService = {
         customer_name: data.customerName || null,
         customer_phone: data.customerPhone || null,
         discount_amount: data.discountAmount ?? 0,
+        customer_price: data.customerPrice ?? null,
+        gst_applied: data.gstApplied ?? true,
         payment_method: data.paymentMethod ?? 'CASH',
         payment_status: data.paymentStatus ?? 'PAID',
       },
@@ -616,5 +713,11 @@ export const billingService = {
   async getSale(saleId: string): Promise<Sale> {
     const res = await apiClient.get<{ sale: BackendSale }>(`/billing/sales/${saleId}`, { auth: true });
     return mapSale(res.data.sale);
+  },
+
+  /* Dashboard */
+  async getDashboardSummary(): Promise<BillingDashboardSummary> {
+    const res = await apiClient.get<BackendBillingDashboardSummary>('/billing/dashboard-summary', { auth: true });
+    return mapDashboardSummary(res.data);
   },
 };

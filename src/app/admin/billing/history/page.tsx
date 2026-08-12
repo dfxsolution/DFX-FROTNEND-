@@ -111,7 +111,7 @@ export default function SalesHistoryPage() {
             <table className="w-full text-left">
               <thead className="bg-slate-50 border-b border-slate-200">
                 <tr>
-                  {['Invoice', 'Date', 'Product', 'Vendor', 'Customer', 'Final Amount', 'Margin', 'Payment', ''].map((h) => (
+                  {['Invoice', 'Date', 'Product', 'Vendor', 'Customer', 'Total', 'Profit/Loss', 'Payment', ''].map((h) => (
                     <th key={h} className="px-4 py-3 text-[10px] font-bold uppercase tracking-wider text-slate-500">{h}</th>
                   ))}
                 </tr>
@@ -130,8 +130,12 @@ export default function SalesHistoryPage() {
                     <td className="px-4 py-3 text-xs font-medium text-slate-600">{sale.vendorName || '—'}</td>
                     <td className="px-4 py-3 text-xs font-medium text-slate-600">{sale.customerName || sale.customerId || '—'}</td>
                     <td className="px-4 py-3 text-xs font-bold text-gold-dark font-mono">{formatCurrency(sale.finalAmount)}</td>
-                    <td className="px-4 py-3 text-xs font-mono text-slate-500">
-                      {sale.estimatedGrossMargin !== null ? formatCurrency(sale.estimatedGrossMargin) : '—'}
+                    <td className="px-4 py-3 text-xs font-mono font-bold">
+                      {sale.estimatedGrossMargin !== null ? (
+                        <span className={sale.estimatedGrossMargin >= 0 ? 'text-emerald-600' : 'text-red-600'}>
+                          {sale.estimatedGrossMargin >= 0 ? '🟢 ' : '🔴 '}{formatCurrency(Math.abs(sale.estimatedGrossMargin))}
+                        </span>
+                      ) : '—'}
                     </td>
                     <td className="px-4 py-3">
                       <Badge variant={sale.paymentStatus === 'PAID' ? 'success' : sale.paymentStatus === 'PARTIAL' ? 'warn' : 'pending'}>

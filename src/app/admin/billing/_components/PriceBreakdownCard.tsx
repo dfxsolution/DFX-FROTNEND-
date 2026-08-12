@@ -29,7 +29,7 @@ export function PriceBreakdownCard({
     { label: 'Stone Charge', value: formatCurrency(breakdown.stoneChargeAmount) },
     { label: 'Other Charges', value: formatCurrency(breakdown.otherChargesAmount) },
     { label: 'Subtotal', value: formatCurrency(breakdown.subtotalBeforeTax), muted: true },
-    { label: `Tax / GST (${breakdown.taxRatePercent}%)`, value: formatCurrency(breakdown.taxAmount) },
+    { label: breakdown.gstApplied ? `GST (${breakdown.taxRatePercent}%)` : 'GST (not applied)', value: formatCurrency(breakdown.taxAmount) },
     ...(breakdown.discountAmount > 0
       ? [{ label: 'Discount', value: `− ${formatCurrency(breakdown.discountAmount)}` }]
       : []),
@@ -51,13 +51,15 @@ export function PriceBreakdownCard({
           </div>
         ))}
         <div className="flex items-center justify-between pt-3 border-t-2 border-gold/30">
-          <span className="text-sm font-bold text-[#0B0E23]">Final Amount</span>
+          <span className="text-sm font-bold text-[#0B0E23]">Total</span>
           <span className="font-display font-extrabold text-2xl text-gold-dark">{formatCurrency(breakdown.finalAmount)}</span>
         </div>
         {margin && margin.estimatedGrossMargin !== null && (
-          <div className="flex items-center justify-between pt-2 mt-1 border-t border-dashed border-slate-200 text-[11px] font-semibold text-slate-400">
-            <span>Estimated gross margin (internal)</span>
-            <span className="font-mono">{formatCurrency(margin.estimatedGrossMargin)}</span>
+          <div className="flex items-center justify-between pt-2 mt-1 border-t border-dashed border-slate-200 text-xs font-bold">
+            <span className="text-slate-500">{margin.estimatedGrossMargin >= 0 ? '🟢 Profit' : '🔴 Loss'}</span>
+            <span className={`font-mono ${margin.estimatedGrossMargin >= 0 ? 'text-emerald-600' : 'text-red-600'}`}>
+              {formatCurrency(Math.abs(margin.estimatedGrossMargin))}
+            </span>
           </div>
         )}
       </div>
