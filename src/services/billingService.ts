@@ -1,4 +1,4 @@
-import { apiClient } from '@/lib/apiClient';
+import { apiClient, API_BASE_URL, tokenStore } from '@/lib/apiClient';
 
 export type Purity = '9K' | '14K' | '18K' | '20K' | '22K' | '24K';
 export const PURITY_OPTIONS: Purity[] = ['9K', '14K', '18K', '20K', '22K', '24K'];
@@ -11,6 +11,60 @@ export const CHARGE_TYPE_OPTIONS: { value: ChargeType; label: string }[] = [
 ];
 
 export type StockStatus = 'IN_STOCK' | 'SOLD' | 'INACTIVE';
+export type PaymentMethod = 'CASH' | 'CARD' | 'UPI' | 'BANK_TRANSFER' | 'OTHER';
+export const PAYMENT_METHOD_OPTIONS: PaymentMethod[] = ['CASH', 'CARD', 'UPI', 'BANK_TRANSFER', 'OTHER'];
+export type PaymentStatus = 'PAID' | 'PENDING' | 'PARTIAL';
+export const PAYMENT_STATUS_OPTIONS: PaymentStatus[] = ['PAID', 'PENDING', 'PARTIAL'];
+
+/* ------------------------------------------------------------------ */
+/* Vendor                                                              */
+/* ------------------------------------------------------------------ */
+
+interface BackendVendor {
+  id: string;
+  tenant_id: string;
+  name: string;
+  contact_person: string | null;
+  phone: string | null;
+  email: string | null;
+  address: string | null;
+  gst_number: string | null;
+  is_active: boolean;
+  created_at: string;
+}
+
+export interface Vendor {
+  id: string;
+  name: string;
+  contactPerson: string | null;
+  phone: string | null;
+  email: string | null;
+  address: string | null;
+  gstNumber: string | null;
+  isActive: boolean;
+}
+
+export interface VendorFormData {
+  name: string;
+  contactPerson?: string;
+  phone?: string;
+  email?: string;
+  address?: string;
+  gstNumber?: string;
+}
+
+function mapVendor(raw: BackendVendor): Vendor {
+  return {
+    id: raw.id,
+    name: raw.name,
+    contactPerson: raw.contact_person,
+    phone: raw.phone,
+    email: raw.email,
+    address: raw.address,
+    gstNumber: raw.gst_number,
+    isActive: raw.is_active,
+  };
+}
 
 /* ------------------------------------------------------------------ */
 /* Inventory / Product Master                                         */
@@ -27,9 +81,11 @@ interface BackendInventoryItem {
   purity: string;
   gross_weight_grams: number;
   net_gold_weight_grams: number;
+  vendor_id: string | null;
   vendor_name: string | null;
   purchase_date: string | null;
   purchase_invoice_ref: string | null;
+  purchase_rate_per_gram: number | null;
   purchase_cost: number | null;
   image_url: string | null;
   stock_status: StockStatus;
@@ -55,9 +111,11 @@ export interface InventoryItem {
   purity: Purity;
   grossWeightGrams: number;
   netGoldWeightGrams: number;
+  vendorId: string | null;
   vendorName: string | null;
   purchaseDate: string | null;
   purchaseInvoiceRef: string | null;
+  purchaseRatePerGram: number | null;
   purchaseCost: number | null;
   imageUrl: string | null;
   stockStatus: StockStatus;
@@ -81,9 +139,11 @@ export interface InventoryItemFormData {
   purity: Purity;
   grossWeightGrams: number;
   netGoldWeightGrams: number;
+  vendorId?: string;
   vendorName?: string;
   purchaseDate?: string;
   purchaseInvoiceRef?: string;
+  purchaseRatePerGram?: number;
   purchaseCost?: number;
   makingChargeType: ChargeType;
   makingChargeValue: number;
@@ -105,9 +165,11 @@ function mapInventoryItem(raw: BackendInventoryItem): InventoryItem {
     purity: raw.purity as Purity,
     grossWeightGrams: raw.gross_weight_grams,
     netGoldWeightGrams: raw.net_gold_weight_grams,
+    vendorId: raw.vendor_id,
     vendorName: raw.vendor_name,
     purchaseDate: raw.purchase_date,
     purchaseInvoiceRef: raw.purchase_invoice_ref,
+    purchaseRatePerGram: raw.purchase_rate_per_gram,
     purchaseCost: raw.purchase_cost,
     imageUrl: raw.image_url,
     stockStatus: raw.stock_status,
@@ -133,9 +195,11 @@ function toBackendInventoryPayload(data: Partial<InventoryItemFormData>) {
     purity: data.purity,
     gross_weight_grams: data.grossWeightGrams,
     net_gold_weight_grams: data.netGoldWeightGrams,
+    vendor_id: data.vendorId || null,
     vendor_name: data.vendorName || null,
     purchase_date: data.purchaseDate || null,
     purchase_invoice_ref: data.purchaseInvoiceRef || null,
+    purchase_rate_per_gram: data.purchaseRatePerGram ?? null,
     purchase_cost: data.purchaseCost ?? null,
     making_charge_type: data.makingChargeType,
     making_charge_value: data.makingChargeValue,
@@ -236,6 +300,8 @@ export interface SaleCreateData {
   customerName?: string;
   customerPhone?: string;
   discountAmount?: number;
+  paymentMethod?: PaymentMethod;
+  paymentStatus?: PaymentStatus;
 }
 
 interface BackendSale extends BackendPriceBreakdown {
@@ -248,8 +314,11 @@ interface BackendSale extends BackendPriceBreakdown {
   customer_phone: string | null;
   product_code: string;
   product_name: string;
+  vendor_name: string | null;
   huid: string | null;
   gross_weight_grams: number;
+  payment_method: PaymentMethod;
+  payment_status: PaymentStatus;
   purchase_cost_snapshot: number | null;
   estimated_gross_margin: number | null;
   sale_timestamp: string;
@@ -266,8 +335,11 @@ export interface Sale extends PriceBreakdown {
   customerPhone: string | null;
   productCode: string;
   productName: string;
+  vendorName: string | null;
   huid: string | null;
   grossWeightGrams: number;
+  paymentMethod: PaymentMethod;
+  paymentStatus: PaymentStatus;
   purchaseCostSnapshot: number | null;
   estimatedGrossMargin: number | null;
   saleTimestamp: string;
@@ -286,8 +358,11 @@ function mapSale(raw: BackendSale): Sale {
     customerPhone: raw.customer_phone,
     productCode: raw.product_code,
     productName: raw.product_name,
+    vendorName: raw.vendor_name,
     huid: raw.huid,
     grossWeightGrams: raw.gross_weight_grams,
+    paymentMethod: raw.payment_method,
+    paymentStatus: raw.payment_status,
     purchaseCostSnapshot: raw.purchase_cost_snapshot,
     estimatedGrossMargin: raw.estimated_gross_margin,
     saleTimestamp: raw.sale_timestamp,
@@ -296,7 +371,129 @@ function mapSale(raw: BackendSale): Sale {
   };
 }
 
+export interface BulkPurchaseLineItem {
+  productCode: string;
+  productName: string;
+  category?: string;
+  subcategory?: string;
+  huid?: string;
+  purity: Purity;
+  grossWeightGrams: number;
+  netGoldWeightGrams: number;
+  purchaseRatePerGram?: number;
+  purchaseCost?: number;
+  makingChargeType: ChargeType;
+  makingChargeValue: number;
+  wastageType: ChargeType;
+  wastageValue: number;
+  stoneChargeAmount: number;
+  otherChargesAmount: number;
+  taxRatePercent: number;
+}
+
+export interface BulkPurchaseData {
+  vendorId: string;
+  purchaseDate: string;
+  purchaseInvoiceRef?: string;
+  items: BulkPurchaseLineItem[];
+}
+
+function toBackendLineItem(i: BulkPurchaseLineItem) {
+  return {
+    product_code: i.productCode,
+    product_name: i.productName,
+    category: i.category || null,
+    subcategory: i.subcategory || null,
+    huid: i.huid || null,
+    purity: i.purity,
+    gross_weight_grams: i.grossWeightGrams,
+    net_gold_weight_grams: i.netGoldWeightGrams,
+    purchase_rate_per_gram: i.purchaseRatePerGram ?? null,
+    purchase_cost: i.purchaseCost ?? null,
+    making_charge_type: i.makingChargeType,
+    making_charge_value: i.makingChargeValue,
+    wastage_type: i.wastageType,
+    wastage_value: i.wastageValue,
+    stone_charge_amount: i.stoneChargeAmount,
+    other_charges_amount: i.otherChargesAmount,
+    tax_rate_percent: i.taxRatePercent,
+  };
+}
+
+async function downloadBlob(path: string, filename: string): Promise<void> {
+  const token = tokenStore.getAccessToken();
+  const res = await fetch(`${API_BASE_URL}${path}`, {
+    headers: token ? { Authorization: `Bearer ${token}` } : {},
+  });
+  if (!res.ok) throw new Error(`Download failed (${res.status})`);
+  const blob = await res.blob();
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  URL.revokeObjectURL(url);
+}
+
 export const billingService = {
+  /* Vendors */
+  async listVendors(search?: string): Promise<Vendor[]> {
+    const query = search ? `?search=${encodeURIComponent(search)}` : '';
+    const res = await apiClient.get<{ vendors: BackendVendor[] }>(`/billing/vendors${query}`, { auth: true });
+    return res.data.vendors.map(mapVendor);
+  },
+
+  async createVendor(data: VendorFormData): Promise<Vendor> {
+    const res = await apiClient.post<{ vendor: BackendVendor }>(
+      '/billing/vendors',
+      {
+        name: data.name,
+        contact_person: data.contactPerson || null,
+        phone: data.phone || null,
+        email: data.email || null,
+        address: data.address || null,
+        gst_number: data.gstNumber || null,
+      },
+      { auth: true }
+    );
+    return mapVendor(res.data.vendor);
+  },
+
+  async setVendorActive(vendorId: string, isActive: boolean): Promise<Vendor> {
+    const res = await apiClient.put<{ vendor: BackendVendor }>(
+      `/billing/vendors/${vendorId}`,
+      { is_active: isActive },
+      { auth: true }
+    );
+    return mapVendor(res.data.vendor);
+  },
+
+  /* Bulk Purchase */
+  async bulkPurchase(data: BulkPurchaseData): Promise<InventoryItem[]> {
+    const res = await apiClient.post<{ items: BackendInventoryItem[] }>(
+      '/billing/inventory/bulk-purchase',
+      {
+        vendor_id: data.vendorId,
+        purchase_date: data.purchaseDate,
+        purchase_invoice_ref: data.purchaseInvoiceRef || null,
+        items: data.items.map(toBackendLineItem),
+      },
+      { auth: true }
+    );
+    return res.data.items.map(mapInventoryItem);
+  },
+
+  /* Invoice export */
+  async downloadInvoicePdf(saleId: string, invoiceNumber: string): Promise<void> {
+    await downloadBlob(`/billing/sales/${saleId}/invoice.pdf`, `${invoiceNumber}.pdf`);
+  },
+
+  async downloadInvoiceExcel(saleId: string, invoiceNumber: string): Promise<void> {
+    await downloadBlob(`/billing/sales/${saleId}/invoice.xlsx`, `${invoiceNumber}.xlsx`);
+  },
+
   /* Inventory */
   async listInventory(params: {
     page?: number;
@@ -304,6 +501,7 @@ export const billingService = {
     search?: string;
     stockStatus?: StockStatus;
     category?: string;
+    vendorId?: string;
   } = {}): Promise<{ items: InventoryItem[]; total: number }> {
     const query = new URLSearchParams();
     query.set('page', String(params.page ?? 1));
@@ -311,6 +509,7 @@ export const billingService = {
     if (params.search) query.set('search', params.search);
     if (params.stockStatus) query.set('stock_status', params.stockStatus);
     if (params.category) query.set('category', params.category);
+    if (params.vendorId) query.set('vendor_id', params.vendorId);
 
     const res = await apiClient.get<{ items: BackendInventoryItem[]; total: number }>(
       `/billing/inventory?${query.toString()}`,
@@ -384,6 +583,8 @@ export const billingService = {
         customer_name: data.customerName || null,
         customer_phone: data.customerPhone || null,
         discount_amount: data.discountAmount ?? 0,
+        payment_method: data.paymentMethod ?? 'CASH',
+        payment_status: data.paymentStatus ?? 'PAID',
       },
       { auth: true }
     );

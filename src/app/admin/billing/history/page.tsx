@@ -7,11 +7,14 @@ import { Input } from '@/components/ui/input';
 import { Skeleton } from '@/components/ui/skeleton';
 import { EmptyState } from '@/components/ui/empty-state';
 import { Dialog, DialogFooter } from '@/components/ui/dialog';
-import { Receipt, Search, FileX } from 'lucide-react';
+import { Receipt, Search, FileX, Download, FileSpreadsheet, Printer } from 'lucide-react';
+import { Badge } from '@/components/ui/badge';
 import { billingService, Sale } from '@/services/billingService';
 import { ApiError } from '@/lib/apiClient';
 import { formatCurrency, formatWeight } from '@/lib/formatters';
 import { PriceBreakdownCard } from '../_components/PriceBreakdownCard';
+import { printInvoice } from '../_components/printInvoice';
+import { useTenant } from '@/hooks/useTenant';
 
 export default function SalesHistoryPage() {
   const [sales, setSales] = useState<Sale[]>([]);
@@ -23,6 +26,7 @@ export default function SalesHistoryPage() {
   const [dateTo, setDateTo] = useState('');
 
   const [selected, setSelected] = useState<Sale | null>(null);
+  const { branding } = useTenant();
 
   const loadSales = async () => {
     setLoading(true);
@@ -107,7 +111,7 @@ export default function SalesHistoryPage() {
             <table className="w-full text-left">
               <thead className="bg-slate-50 border-b border-slate-200">
                 <tr>
-                  {['Invoice', 'Date', 'Product', 'Customer', 'Final Amount', ''].map((h) => (
+                  {['Invoice', 'Date', 'Product', 'Vendor', 'Customer', 'Final Amount', 'Margin', 'Payment', ''].map((h) => (
                     <th key={h} className="px-4 py-3 text-[10px] font-bold uppercase tracking-wider text-slate-500">{h}</th>
                   ))}
                 </tr>
@@ -123,8 +127,17 @@ export default function SalesHistoryPage() {
                       <span className="font-mono font-bold text-slate-500">{sale.productCode}</span>
                       <span className="block text-[11px] font-semibold text-[#0B0E23]">{sale.productName}</span>
                     </td>
+                    <td className="px-4 py-3 text-xs font-medium text-slate-600">{sale.vendorName || '—'}</td>
                     <td className="px-4 py-3 text-xs font-medium text-slate-600">{sale.customerName || sale.customerId || '—'}</td>
                     <td className="px-4 py-3 text-xs font-bold text-gold-dark font-mono">{formatCurrency(sale.finalAmount)}</td>
+                    <td className="px-4 py-3 text-xs font-mono text-slate-500">
+                      {sale.estimatedGrossMargin !== null ? formatCurrency(sale.estimatedGrossMargin) : '—'}
+                    </td>
+                    <td className="px-4 py-3">
+                      <Badge variant={sale.paymentStatus === 'PAID' ? 'success' : sale.paymentStatus === 'PARTIAL' ? 'warn' : 'pending'}>
+                        {sale.paymentStatus}
+                      </Badge>
+                    </td>
                     <td className="px-4 py-3 text-right">
                       <Button size="sm" variant="outline" onClick={() => setSelected(sale)}>View</Button>
                     </td>
@@ -163,6 +176,19 @@ export default function SalesHistoryPage() {
           </div>
         )}
         <DialogFooter>
+          {selected && (
+            <>
+              <Button variant="outline" size="sm" onClick={() => billingService.downloadInvoicePdf(selected.id, selected.invoiceNumber)}>
+                <Download className="h-3.5 w-3.5 mr-1.5" /> PDF
+              </Button>
+              <Button variant="outline" size="sm" onClick={() => billingService.downloadInvoiceExcel(selected.id, selected.invoiceNumber)}>
+                <FileSpreadsheet className="h-3.5 w-3.5 mr-1.5" /> Excel
+              </Button>
+              <Button variant="outline" size="sm" onClick={() => printInvoice(selected, branding.brandName)}>
+                <Printer className="h-3.5 w-3.5 mr-1.5" /> Print
+              </Button>
+            </>
+          )}
           <Button variant="outline" onClick={() => setSelected(null)}>Close</Button>
         </DialogFooter>
       </Dialog>

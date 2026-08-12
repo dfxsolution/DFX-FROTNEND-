@@ -10,11 +10,12 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { Toast } from '@/components/ui/toast';
 import { EmptyState } from '@/components/ui/empty-state';
 import { Dialog, DialogFooter } from '@/components/ui/dialog';
-import { Boxes, Plus, Pencil, ImagePlus, Search, PackageX } from 'lucide-react';
+import { Boxes, Plus, Pencil, ImagePlus, Search, PackageX, PackagePlus } from 'lucide-react';
 import {
   billingService,
   InventoryItem,
   InventoryItemFormData,
+  Vendor,
   Purity,
   ChargeType,
   StockStatus,
@@ -23,6 +24,8 @@ import {
 } from '@/services/billingService';
 import { ApiError } from '@/lib/apiClient';
 import { formatCurrency, formatWeight } from '@/lib/formatters';
+import { VendorQuickAddDialog } from '../_components/VendorQuickAddDialog';
+import { BulkPurchaseDialog } from '../_components/BulkPurchaseDialog';
 
 const STOCK_BADGE: Record<StockStatus, BadgeProps['variant']> = {
   IN_STOCK: 'success',
@@ -39,7 +42,9 @@ const emptyForm: InventoryItemFormData = {
   purity: '22K',
   grossWeightGrams: 0,
   netGoldWeightGrams: 0,
+  vendorId: '',
   vendorName: '',
+  purchaseRatePerGram: undefined,
   purchaseDate: '',
   purchaseInvoiceRef: '',
   purchaseCost: undefined,
@@ -59,6 +64,11 @@ export default function InventoryPage() {
   const [loadError, setLoadError] = useState('');
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState<StockStatus | ''>('');
+  const [vendorFilter, setVendorFilter] = useState('');
+
+  const [vendors, setVendors] = useState<Vendor[]>([]);
+  const [vendorDialogOpen, setVendorDialogOpen] = useState(false);
+  const [purchaseDialogOpen, setPurchaseDialogOpen] = useState(false);
 
   const [modalOpen, setModalOpen] = useState(false);
   const [editingItem, setEditingItem] = useState<InventoryItem | null>(null);
@@ -76,6 +86,7 @@ export default function InventoryPage() {
       const res = await billingService.listInventory({
         search: search || undefined,
         stockStatus: statusFilter || undefined,
+        vendorId: vendorFilter || undefined,
         limit: 100,
       });
       setItems(res.items);
@@ -87,10 +98,23 @@ export default function InventoryPage() {
     }
   };
 
+  const loadVendors = async () => {
+    try {
+      setVendors(await billingService.listVendors());
+    } catch {
+      // Non-fatal — vendor select just shows empty; inventory list itself still works.
+    }
+  };
+
+  useEffect(() => {
+    loadVendors();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   useEffect(() => {
     loadItems();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [statusFilter]);
+  }, [statusFilter, vendorFilter]);
 
   const openCreateModal = () => {
     setEditingItem(null);
@@ -110,9 +134,11 @@ export default function InventoryPage() {
       purity: item.purity,
       grossWeightGrams: item.grossWeightGrams,
       netGoldWeightGrams: item.netGoldWeightGrams,
+      vendorId: item.vendorId || '',
       vendorName: item.vendorName || '',
       purchaseDate: item.purchaseDate || '',
       purchaseInvoiceRef: item.purchaseInvoiceRef || '',
+      purchaseRatePerGram: item.purchaseRatePerGram ?? undefined,
       purchaseCost: item.purchaseCost ?? undefined,
       makingChargeType: item.makingChargeType,
       makingChargeValue: item.makingChargeValue,
@@ -205,9 +231,14 @@ export default function InventoryPage() {
             </p>
           </div>
         </div>
-        <Button onClick={openCreateModal} className="shrink-0">
-          <Plus className="h-4 w-4 mr-1.5" /> Add Item
-        </Button>
+        <div className="flex gap-2 shrink-0">
+          <Button variant="outline" onClick={() => setPurchaseDialogOpen(true)}>
+            <PackagePlus className="h-4 w-4 mr-1.5" /> Bulk Purchase
+          </Button>
+          <Button onClick={openCreateModal}>
+            <Plus className="h-4 w-4 mr-1.5" /> Add Item
+          </Button>
+        </div>
       </div>
 
       <div className="flex flex-col sm:flex-row gap-3">
@@ -230,6 +261,10 @@ export default function InventoryPage() {
           <option value="IN_STOCK">In Stock</option>
           <option value="SOLD">Sold</option>
           <option value="INACTIVE">Inactive</option>
+        </Select>
+        <Select value={vendorFilter} onChange={(e) => setVendorFilter(e.target.value)} className="max-w-[180px]">
+          <option value="">All vendors</option>
+          {vendors.map((v) => <option key={v.id} value={v.id}>{v.name}</option>)}
         </Select>
         <Button variant="outline" onClick={loadItems}>Search</Button>
       </div>
@@ -378,7 +413,24 @@ export default function InventoryPage() {
               <p className="text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-2">Vendor / Purchase (historical)</p>
             </div>
             <Field label="Vendor / Supplier">
-              <Input value={form.vendorName} disabled={isSold} onChange={(e) => setForm({ ...form, vendorName: e.target.value })} />
+              <div className="flex gap-1.5">
+                <Select
+                  value={form.vendorId || ''}
+                  disabled={isSold}
+                  onChange={(e) => {
+                    const v = vendors.find((x) => x.id === e.target.value);
+                    setForm({ ...form, vendorId: e.target.value, vendorName: v?.name || '' });
+                  }}
+                >
+                  <option value="">Select vendor...</option>
+                  {vendors.map((v) => <option key={v.id} value={v.id}>{v.name}</option>)}
+                </Select>
+                {!isSold && (
+                  <Button variant="outline" size="icon" onClick={() => setVendorDialogOpen(true)} aria-label="Add vendor">
+                    <Plus className="h-4 w-4" />
+                  </Button>
+                )}
+              </div>
             </Field>
             <Field label="Purchase Date">
               <Input type="date" value={form.purchaseDate} disabled={isSold} onChange={(e) => setForm({ ...form, purchaseDate: e.target.value })} />
@@ -386,7 +438,11 @@ export default function InventoryPage() {
             <Field label="Purchase Invoice Ref">
               <Input value={form.purchaseInvoiceRef} disabled={isSold} onChange={(e) => setForm({ ...form, purchaseInvoiceRef: e.target.value })} />
             </Field>
-            <Field label="Purchase Cost (₹)">
+            <Field label="Purchase Rate (₹/g)">
+              <Input type="number" step="0.01" min="0" value={form.purchaseRatePerGram ?? ''} disabled={isSold}
+                onChange={(e) => setForm({ ...form, purchaseRatePerGram: e.target.value ? parseFloat(e.target.value) : undefined })} />
+            </Field>
+            <Field label="Purchase Value / Cost (₹)">
               <Input type="number" step="0.01" min="0" value={form.purchaseCost ?? ''} disabled={isSold}
                 onChange={(e) => setForm({ ...form, purchaseCost: e.target.value ? parseFloat(e.target.value) : undefined })} />
             </Field>
@@ -436,6 +492,25 @@ export default function InventoryPage() {
           )}
         </DialogFooter>
       </Dialog>
+
+      <VendorQuickAddDialog
+        isOpen={vendorDialogOpen}
+        onClose={() => setVendorDialogOpen(false)}
+        onCreated={(v) => {
+          setVendors((prev) => [...prev, v]);
+          setForm((f) => ({ ...f, vendorId: v.id, vendorName: v.name }));
+          setToast({ message: 'Vendor added', type: 'success' });
+        }}
+      />
+      <BulkPurchaseDialog
+        isOpen={purchaseDialogOpen}
+        onClose={() => setPurchaseDialogOpen(false)}
+        vendors={vendors}
+        onCompleted={(count) => {
+          setToast({ message: `${count} inventory item(s) created from purchase`, type: 'success' });
+          loadItems();
+        }}
+      />
 
       {toast && <Toast message={toast.message} type={toast.type} onClose={() => setToast(null)} />}
     </div>

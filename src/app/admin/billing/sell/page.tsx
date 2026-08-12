@@ -5,13 +5,19 @@ import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
+import { Select } from '@/components/ui/form-controls';
 import { Toast } from '@/components/ui/toast';
 import { Dialog, DialogFooter } from '@/components/ui/dialog';
-import { Calculator, ScanLine, CheckCircle2, RotateCcw, Gem } from 'lucide-react';
-import { billingService, SaleQuote, Sale } from '@/services/billingService';
+import { Calculator, ScanLine, CheckCircle2, RotateCcw, Gem, Download, FileSpreadsheet, Printer } from 'lucide-react';
+import {
+  billingService, SaleQuote, Sale, PaymentMethod, PaymentStatus,
+  PAYMENT_METHOD_OPTIONS, PAYMENT_STATUS_OPTIONS,
+} from '@/services/billingService';
 import { ApiError } from '@/lib/apiClient';
 import { formatCurrency, formatWeight } from '@/lib/formatters';
 import { PriceBreakdownCard } from '../_components/PriceBreakdownCard';
+import { printInvoice } from '../_components/printInvoice';
+import { useTenant } from '@/hooks/useTenant';
 
 type Stage = 'scan' | 'loading' | 'review' | 'success';
 
@@ -27,6 +33,9 @@ export default function NewSalePage() {
   const [customerName, setCustomerName] = useState('');
   const [customerPhone, setCustomerPhone] = useState('');
   const [customerId, setCustomerId] = useState('');
+  const [proposedPrice, setProposedPrice] = useState('');
+  const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>('CASH');
+  const [paymentStatus, setPaymentStatus] = useState<PaymentStatus>('PAID');
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [completing, setCompleting] = useState(false);
   const [completeError, setCompleteError] = useState('');
@@ -34,6 +43,7 @@ export default function NewSalePage() {
 
   const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' } | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
+  const { branding } = useTenant();
 
   const runScan = async (rawCode: string) => {
     const trimmed = rawCode.trim();
@@ -73,6 +83,9 @@ export default function NewSalePage() {
     setCustomerName('');
     setCustomerPhone('');
     setCustomerId('');
+    setProposedPrice('');
+    setPaymentMethod('CASH');
+    setPaymentStatus('PAID');
     setCompletedSale(null);
     setCompleteError('');
     setTimeout(() => inputRef.current?.focus(), 50);
@@ -91,6 +104,8 @@ export default function NewSalePage() {
         customerName: customerName.trim() || undefined,
         customerPhone: customerPhone.trim() || undefined,
         discountAmount: quote.breakdown.discountAmount,
+        paymentMethod,
+        paymentStatus,
       });
       setCompletedSale(sale);
       setConfirmOpen(false);
@@ -172,6 +187,16 @@ export default function NewSalePage() {
             </Button>
           </Card>
 
+          {quote.inventoryItem.purchaseCost !== null && (
+            <PriceComparisonCard
+              purchaseCost={quote.inventoryItem.purchaseCost}
+              currentGoldValue={quote.breakdown.goldValueAmount}
+              configuredSellingPrice={quote.breakdown.finalAmount}
+              proposedPrice={proposedPrice}
+              onProposedPriceChange={setProposedPrice}
+            />
+          )}
+
           <div className="grid sm:grid-cols-2 gap-3">
             <div className="space-y-1">
               <label className="text-[10px] font-bold text-slate-500 uppercase tracking-wider block">Customer Name</label>
@@ -196,6 +221,18 @@ export default function NewSalePage() {
                 onChange={(e) => setDiscountInput(e.target.value)}
                 onBlur={handleDiscountBlur}
               />
+            </div>
+            <div className="space-y-1">
+              <label className="text-[10px] font-bold text-slate-500 uppercase tracking-wider block">Payment Method</label>
+              <Select value={paymentMethod} onChange={(e) => setPaymentMethod(e.target.value as PaymentMethod)}>
+                {PAYMENT_METHOD_OPTIONS.map((m) => <option key={m} value={m}>{m.replace('_', ' ')}</option>)}
+              </Select>
+            </div>
+            <div className="space-y-1">
+              <label className="text-[10px] font-bold text-slate-500 uppercase tracking-wider block">Payment Status</label>
+              <Select value={paymentStatus} onChange={(e) => setPaymentStatus(e.target.value as PaymentStatus)}>
+                {PAYMENT_STATUS_OPTIONS.map((s) => <option key={s} value={s}>{s}</option>)}
+              </Select>
             </div>
           </div>
 
@@ -226,6 +263,17 @@ export default function NewSalePage() {
           <p className="text-xs text-slate-500">
             {completedSale.productCode} — {completedSale.productName} is now marked SOLD.
           </p>
+          <div className="flex flex-wrap gap-2 justify-center">
+            <Button variant="outline" size="sm" onClick={() => billingService.downloadInvoicePdf(completedSale.id, completedSale.invoiceNumber)}>
+              <Download className="h-3.5 w-3.5 mr-1.5" /> PDF
+            </Button>
+            <Button variant="outline" size="sm" onClick={() => billingService.downloadInvoiceExcel(completedSale.id, completedSale.invoiceNumber)}>
+              <FileSpreadsheet className="h-3.5 w-3.5 mr-1.5" /> Excel
+            </Button>
+            <Button variant="outline" size="sm" onClick={() => printInvoice(completedSale, branding.brandName)}>
+              <Printer className="h-3.5 w-3.5 mr-1.5" /> Print
+            </Button>
+          </div>
           <Button className="w-full max-w-xs h-12" onClick={resetToScan}>
             <ScanLine className="h-4 w-4 mr-2" /> Start Next Sale
           </Button>
@@ -259,6 +307,64 @@ export default function NewSalePage() {
       </Dialog>
 
       {toast && <Toast message={toast.message} type={toast.type} onClose={() => setToast(null)} />}
+    </div>
+  );
+}
+
+/**
+ * Decision-support only — plain arithmetic (difference, margin, margin %),
+ * never a recommendation. Must never render language like "you should
+ * sell"/"approved"/"profit too low" per the explicit requirement; the
+ * Admin decides, this only shows the numbers.
+ */
+function PriceComparisonCard({
+  purchaseCost,
+  currentGoldValue,
+  configuredSellingPrice,
+  proposedPrice,
+  onProposedPriceChange,
+}: {
+  purchaseCost: number;
+  currentGoldValue: number;
+  configuredSellingPrice: number;
+  proposedPrice: string;
+  onProposedPriceChange: (v: string) => void;
+}) {
+  const proposed = parseFloat(proposedPrice);
+  const hasProposed = !isNaN(proposed) && proposedPrice.trim() !== '';
+  const basisPrice = hasProposed ? proposed : configuredSellingPrice;
+  const difference = basisPrice - configuredSellingPrice;
+  const margin = basisPrice - purchaseCost;
+  const marginPercent = purchaseCost > 0 ? (margin / purchaseCost) * 100 : null;
+
+  return (
+    <div className="rounded-2xl border border-slate-200 bg-white p-4 space-y-3">
+      <span className="text-[11px] font-bold uppercase tracking-wider text-slate-500">Price Comparison (reference only)</span>
+      <div className="grid grid-cols-2 gap-3 text-xs">
+        <Stat label="Vendor Purchase Cost" value={formatCurrency(purchaseCost)} />
+        <Stat label="Current Gold Value" value={formatCurrency(currentGoldValue)} />
+        <Stat label="Configured Selling Price" value={formatCurrency(configuredSellingPrice)} />
+        <div className="space-y-1">
+          <label className="text-[10px] font-bold text-slate-500 uppercase tracking-wider block">Customer Proposed Price (₹)</label>
+          <Input type="number" step="0.01" min="0" value={proposedPrice} onChange={(e) => onProposedPriceChange(e.target.value)} placeholder="Optional" />
+        </div>
+      </div>
+      {hasProposed && (
+        <div className="grid grid-cols-3 gap-3 text-xs pt-2 border-t border-slate-100">
+          <Stat label="Difference vs Configured" value={formatCurrency(difference)} />
+          <Stat label="Estimated Gross Margin" value={formatCurrency(margin)} />
+          <Stat label="Estimated Margin %" value={marginPercent !== null ? `${marginPercent.toFixed(1)}%` : '—'} />
+        </div>
+      )}
+    </div>
+  );
+}
+
+function Stat({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="space-y-0.5">
+      <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">{label}</p>
+      <p className="font-mono font-bold text-[#0B0E23]">{value}</p>
     </div>
   );
 }
