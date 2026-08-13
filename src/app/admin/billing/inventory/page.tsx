@@ -10,7 +10,7 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { Toast } from '@/components/ui/toast';
 import { EmptyState } from '@/components/ui/empty-state';
 import { Dialog, DialogFooter } from '@/components/ui/dialog';
-import { Boxes, Plus, Pencil, ImagePlus, Search, PackageX, PackagePlus } from 'lucide-react';
+import { Boxes, Plus, Pencil, ImagePlus, Search, PackageX, PackagePlus, SlidersHorizontal } from 'lucide-react';
 import {
   billingService,
   InventoryItem,
@@ -18,14 +18,17 @@ import {
   Vendor,
   Purity,
   ChargeType,
+  PricingMode,
   StockStatus,
   PURITY_OPTIONS,
   CHARGE_TYPE_OPTIONS,
+  PRICING_MODE_OPTIONS,
 } from '@/services/billingService';
 import { ApiError } from '@/lib/apiClient';
 import { formatCurrency, formatWeight } from '@/lib/formatters';
 import { VendorQuickAddDialog } from '../_components/VendorQuickAddDialog';
 import { BulkPurchaseDialog } from '../_components/BulkPurchaseDialog';
+import { BillingDefaultsDialog } from '../_components/BillingDefaultsDialog';
 
 const STOCK_BADGE: Record<StockStatus, BadgeProps['variant']> = {
   IN_STOCK: 'success',
@@ -55,6 +58,7 @@ const emptyForm: InventoryItemFormData = {
   stoneChargeAmount: 0,
   otherChargesAmount: 0,
   taxRatePercent: 3,
+  pricingMode: 'AUTO',
 };
 
 export default function InventoryPage() {
@@ -69,6 +73,7 @@ export default function InventoryPage() {
   const [vendors, setVendors] = useState<Vendor[]>([]);
   const [vendorDialogOpen, setVendorDialogOpen] = useState(false);
   const [purchaseDialogOpen, setPurchaseDialogOpen] = useState(false);
+  const [defaultsDialogOpen, setDefaultsDialogOpen] = useState(false);
 
   const [modalOpen, setModalOpen] = useState(false);
   const [editingItem, setEditingItem] = useState<InventoryItem | null>(null);
@@ -147,6 +152,7 @@ export default function InventoryPage() {
       stoneChargeAmount: item.stoneChargeAmount,
       otherChargesAmount: item.otherChargesAmount,
       taxRatePercent: item.taxRatePercent,
+      pricingMode: item.pricingMode || 'AUTO',
     });
     setFormError('');
     setModalOpen(true);
@@ -232,6 +238,9 @@ export default function InventoryPage() {
           </div>
         </div>
         <div className="flex gap-2 shrink-0">
+          <Button variant="outline" onClick={() => setDefaultsDialogOpen(true)}>
+            <SlidersHorizontal className="h-4 w-4 mr-1.5" /> Defaults
+          </Button>
           <Button variant="outline" onClick={() => setPurchaseDialogOpen(true)}>
             <PackagePlus className="h-4 w-4 mr-1.5" /> Bulk Purchase
           </Button>
@@ -480,6 +489,11 @@ export default function InventoryPage() {
               <Input type="number" step="0.01" min="0" max="100" value={form.taxRatePercent} disabled={isSold}
                 onChange={(e) => setForm({ ...form, taxRatePercent: parseFloat(e.target.value) || 0 })} />
             </Field>
+            <Field label="Pricing Mode">
+              <Select value={form.pricingMode || 'AUTO'} disabled={isSold} onChange={(e) => setForm({ ...form, pricingMode: e.target.value as PricingMode })}>
+                {PRICING_MODE_OPTIONS.map((p) => <option key={p.value} value={p.value}>{p.label}</option>)}
+              </Select>
+            </Field>
           </div>
         </div>
 
@@ -511,6 +525,7 @@ export default function InventoryPage() {
           loadItems();
         }}
       />
+      <BillingDefaultsDialog isOpen={defaultsDialogOpen} onClose={() => setDefaultsDialogOpen(false)} />
 
       {toast && <Toast message={toast.message} type={toast.type} onClose={() => setToast(null)} />}
     </div>

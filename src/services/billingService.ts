@@ -16,11 +16,73 @@ export const PAYMENT_METHOD_OPTIONS: PaymentMethod[] = ['CASH', 'CARD', 'UPI', '
 export type PaymentStatus = 'PAID' | 'PENDING' | 'PARTIAL';
 export const PAYMENT_STATUS_OPTIONS: PaymentStatus[] = ['PAID', 'PENDING', 'PARTIAL'];
 
+export type PricingMode = 'AUTO' | 'HYBRID' | 'MANUAL';
+export const PRICING_MODE_OPTIONS: { value: PricingMode; label: string }[] = [
+  { value: 'AUTO', label: 'Auto — system calculates' },
+  { value: 'HYBRID', label: 'Hybrid — suggested, editable' },
+  { value: 'MANUAL', label: 'Manual — you set the price' },
+];
+export type DefaultSource = 'VENDOR' | 'CATEGORY' | 'STORE' | 'NONE';
+
+/* ------------------------------------------------------------------ */
+/* Shared default-fields shape — Vendor / Category / Store defaults    */
+/* all carry exactly this set (pre-fill only, never linked from a      */
+/* saved InventoryItem/Sale).                                          */
+/* ------------------------------------------------------------------ */
+
+interface BackendBillingDefaultFields {
+  making_charge_type: ChargeType | null;
+  making_charge_value: number | null;
+  wastage_type: ChargeType | null;
+  wastage_value: number | null;
+  stone_charge_amount: number | null;
+  other_charges_amount: number | null;
+  tax_rate_percent: number | null;
+  default_pricing_mode: PricingMode | null;
+}
+
+export interface BillingDefaultFields {
+  makingChargeType: ChargeType | null;
+  makingChargeValue: number | null;
+  wastageType: ChargeType | null;
+  wastageValue: number | null;
+  stoneChargeAmount: number | null;
+  otherChargesAmount: number | null;
+  taxRatePercent: number | null;
+  defaultPricingMode: PricingMode | null;
+}
+
+function mapDefaultFields(raw: BackendBillingDefaultFields): BillingDefaultFields {
+  return {
+    makingChargeType: raw.making_charge_type,
+    makingChargeValue: raw.making_charge_value,
+    wastageType: raw.wastage_type,
+    wastageValue: raw.wastage_value,
+    stoneChargeAmount: raw.stone_charge_amount,
+    otherChargesAmount: raw.other_charges_amount,
+    taxRatePercent: raw.tax_rate_percent,
+    defaultPricingMode: raw.default_pricing_mode,
+  };
+}
+
+function toBackendDefaultFields(data: Partial<BillingDefaultFields>) {
+  return {
+    making_charge_type: data.makingChargeType ?? null,
+    making_charge_value: data.makingChargeValue ?? null,
+    wastage_type: data.wastageType ?? null,
+    wastage_value: data.wastageValue ?? null,
+    stone_charge_amount: data.stoneChargeAmount ?? null,
+    other_charges_amount: data.otherChargesAmount ?? null,
+    tax_rate_percent: data.taxRatePercent ?? null,
+    default_pricing_mode: data.defaultPricingMode ?? null,
+  };
+}
+
 /* ------------------------------------------------------------------ */
 /* Vendor                                                              */
 /* ------------------------------------------------------------------ */
 
-interface BackendVendor {
+interface BackendVendor extends BackendBillingDefaultFields {
   id: string;
   tenant_id: string;
   name: string;
@@ -33,7 +95,7 @@ interface BackendVendor {
   created_at: string;
 }
 
-export interface Vendor {
+export interface Vendor extends BillingDefaultFields {
   id: string;
   name: string;
   contactPerson: string | null;
@@ -44,7 +106,7 @@ export interface Vendor {
   isActive: boolean;
 }
 
-export interface VendorFormData {
+export interface VendorFormData extends Partial<BillingDefaultFields> {
   name: string;
   contactPerson?: string;
   phone?: string;
@@ -55,6 +117,7 @@ export interface VendorFormData {
 
 function mapVendor(raw: BackendVendor): Vendor {
   return {
+    ...mapDefaultFields(raw),
     id: raw.id,
     name: raw.name,
     contactPerson: raw.contact_person,
@@ -63,6 +126,73 @@ function mapVendor(raw: BackendVendor): Vendor {
     address: raw.address,
     gstNumber: raw.gst_number,
     isActive: raw.is_active,
+  };
+}
+
+/* ------------------------------------------------------------------ */
+/* Category Pricing Default                                            */
+/* ------------------------------------------------------------------ */
+
+interface BackendCategoryDefault extends BackendBillingDefaultFields {
+  id: string;
+  category: string;
+  created_at: string;
+}
+
+export interface CategoryDefault extends BillingDefaultFields {
+  id: string;
+  category: string;
+}
+
+function mapCategoryDefault(raw: BackendCategoryDefault): CategoryDefault {
+  return { ...mapDefaultFields(raw), id: raw.id, category: raw.category };
+}
+
+/* ------------------------------------------------------------------ */
+/* Store (Tenant) Billing Defaults                                     */
+/* ------------------------------------------------------------------ */
+
+export type StoreDefaults = BillingDefaultFields;
+
+/* ------------------------------------------------------------------ */
+/* Resolved Defaults — field-by-field, for pre-filling forms           */
+/* ------------------------------------------------------------------ */
+
+interface BackendResolvedDefaults {
+  making_charge_type: ChargeType | null;
+  making_charge_value: number | null;
+  wastage_type: ChargeType | null;
+  wastage_value: number | null;
+  stone_charge_amount: number | null;
+  other_charges_amount: number | null;
+  tax_rate_percent: number | null;
+  pricing_mode: PricingMode | null;
+  sources: Record<string, DefaultSource>;
+}
+
+export interface ResolvedDefaults {
+  makingChargeType: ChargeType | null;
+  makingChargeValue: number | null;
+  wastageType: ChargeType | null;
+  wastageValue: number | null;
+  stoneChargeAmount: number | null;
+  otherChargesAmount: number | null;
+  taxRatePercent: number | null;
+  pricingMode: PricingMode | null;
+  sources: Record<string, DefaultSource>;
+}
+
+function mapResolvedDefaults(raw: BackendResolvedDefaults): ResolvedDefaults {
+  return {
+    makingChargeType: raw.making_charge_type,
+    makingChargeValue: raw.making_charge_value,
+    wastageType: raw.wastage_type,
+    wastageValue: raw.wastage_value,
+    stoneChargeAmount: raw.stone_charge_amount,
+    otherChargesAmount: raw.other_charges_amount,
+    taxRatePercent: raw.tax_rate_percent,
+    pricingMode: raw.pricing_mode,
+    sources: raw.sources,
   };
 }
 
@@ -96,6 +226,7 @@ interface BackendInventoryItem {
   stone_charge_amount: number;
   other_charges_amount: number;
   tax_rate_percent: number;
+  pricing_mode: PricingMode | null;
   created_by: string;
   created_at: string;
   updated_at: string;
@@ -126,6 +257,7 @@ export interface InventoryItem {
   stoneChargeAmount: number;
   otherChargesAmount: number;
   taxRatePercent: number;
+  pricingMode: PricingMode | null;
   createdAt: string;
   updatedAt: string;
 }
@@ -152,6 +284,7 @@ export interface InventoryItemFormData {
   stoneChargeAmount: number;
   otherChargesAmount: number;
   taxRatePercent: number;
+  pricingMode?: PricingMode | null;
 }
 
 function mapInventoryItem(raw: BackendInventoryItem): InventoryItem {
@@ -180,6 +313,7 @@ function mapInventoryItem(raw: BackendInventoryItem): InventoryItem {
     stoneChargeAmount: raw.stone_charge_amount,
     otherChargesAmount: raw.other_charges_amount,
     taxRatePercent: raw.tax_rate_percent,
+    pricingMode: raw.pricing_mode,
     createdAt: raw.created_at,
     updatedAt: raw.updated_at,
   };
@@ -208,6 +342,7 @@ function toBackendInventoryPayload(data: Partial<InventoryItemFormData>) {
     stone_charge_amount: data.stoneChargeAmount,
     other_charges_amount: data.otherChargesAmount,
     tax_rate_percent: data.taxRatePercent,
+    pricing_mode: data.pricingMode ?? null,
   };
 }
 
@@ -305,6 +440,7 @@ export interface SaleCreateData {
   discountAmount?: number;
   customerPrice?: number;
   gstApplied?: boolean;
+  pricingMode?: PricingMode;
   paymentMethod?: PaymentMethod;
   paymentStatus?: PaymentStatus;
 }
@@ -324,6 +460,7 @@ interface BackendSale extends BackendPriceBreakdown {
   gross_weight_grams: number;
   payment_method: PaymentMethod;
   payment_status: PaymentStatus;
+  pricing_mode: PricingMode | null;
   purchase_cost_snapshot: number | null;
   estimated_gross_margin: number | null;
   sale_timestamp: string;
@@ -345,6 +482,7 @@ export interface Sale extends PriceBreakdown {
   grossWeightGrams: number;
   paymentMethod: PaymentMethod;
   paymentStatus: PaymentStatus;
+  pricingMode: PricingMode | null;
   purchaseCostSnapshot: number | null;
   estimatedGrossMargin: number | null;
   saleTimestamp: string;
@@ -368,6 +506,7 @@ function mapSale(raw: BackendSale): Sale {
     grossWeightGrams: raw.gross_weight_grams,
     paymentMethod: raw.payment_method,
     paymentStatus: raw.payment_status,
+    pricingMode: raw.pricing_mode,
     purchaseCostSnapshot: raw.purchase_cost_snapshot,
     estimatedGrossMargin: raw.estimated_gross_margin,
     saleTimestamp: raw.sale_timestamp,
@@ -394,6 +533,7 @@ export interface BulkPurchaseLineItem {
   stoneChargeAmount: number;
   otherChargesAmount: number;
   taxRatePercent: number;
+  pricingMode?: PricingMode | null;
 }
 
 export interface BulkPurchaseData {
@@ -422,6 +562,7 @@ function toBackendLineItem(i: BulkPurchaseLineItem) {
     stone_charge_amount: i.stoneChargeAmount,
     other_charges_amount: i.otherChargesAmount,
     tax_rate_percent: i.taxRatePercent,
+    pricing_mode: i.pricingMode ?? null,
   };
 }
 
@@ -544,6 +685,25 @@ export const billingService = {
         email: data.email || null,
         address: data.address || null,
         gst_number: data.gstNumber || null,
+        ...toBackendDefaultFields(data),
+      },
+      { auth: true }
+    );
+    return mapVendor(res.data.vendor);
+  },
+
+  async updateVendor(vendorId: string, data: Partial<VendorFormData> & { isActive?: boolean }): Promise<Vendor> {
+    const res = await apiClient.put<{ vendor: BackendVendor }>(
+      `/billing/vendors/${vendorId}`,
+      {
+        ...(data.name !== undefined ? { name: data.name } : {}),
+        ...(data.contactPerson !== undefined ? { contact_person: data.contactPerson || null } : {}),
+        ...(data.phone !== undefined ? { phone: data.phone || null } : {}),
+        ...(data.email !== undefined ? { email: data.email || null } : {}),
+        ...(data.address !== undefined ? { address: data.address || null } : {}),
+        ...(data.gstNumber !== undefined ? { gst_number: data.gstNumber || null } : {}),
+        ...(data.isActive !== undefined ? { is_active: data.isActive } : {}),
+        ...toBackendDefaultFields(data),
       },
       { auth: true }
     );
@@ -551,12 +711,79 @@ export const billingService = {
   },
 
   async setVendorActive(vendorId: string, isActive: boolean): Promise<Vendor> {
-    const res = await apiClient.put<{ vendor: BackendVendor }>(
-      `/billing/vendors/${vendorId}`,
-      { is_active: isActive },
+    return billingService.updateVendor(vendorId, { isActive });
+  },
+
+  /* Billing Defaults — Store / Category / Resolver */
+  async getStoreDefaults(): Promise<StoreDefaults> {
+    const res = await apiClient.get<BackendBillingDefaultFields>('/billing/defaults/store', { auth: true });
+    return mapDefaultFields(res.data);
+  },
+
+  async updateStoreDefaults(data: Partial<BillingDefaultFields>): Promise<StoreDefaults> {
+    const res = await apiClient.put<BackendBillingDefaultFields>(
+      '/billing/defaults/store', toBackendDefaultFields(data), { auth: true }
+    );
+    return mapDefaultFields(res.data);
+  },
+
+  async listCategoryDefaults(): Promise<CategoryDefault[]> {
+    const res = await apiClient.get<{ categories: BackendCategoryDefault[] }>('/billing/defaults/categories', { auth: true });
+    return res.data.categories.map(mapCategoryDefault);
+  },
+
+  async upsertCategoryDefault(category: string, data: Partial<BillingDefaultFields>): Promise<CategoryDefault> {
+    const res = await apiClient.put<BackendCategoryDefault>(
+      '/billing/defaults/categories', { category, ...toBackendDefaultFields(data) }, { auth: true }
+    );
+    return mapCategoryDefault(res.data);
+  },
+
+  async resolveDefaults(vendorId?: string, category?: string): Promise<ResolvedDefaults> {
+    const query = new URLSearchParams();
+    if (vendorId) query.set('vendor_id', vendorId);
+    if (category) query.set('category', category);
+    const res = await apiClient.get<BackendResolvedDefaults>(`/billing/defaults/resolve?${query.toString()}`, { auth: true });
+    return mapResolvedDefaults(res.data);
+  },
+
+  /* Live price preview for an unsaved bulk-entry row */
+  async previewPrice(input: {
+    purity: Purity;
+    netGoldWeightGrams: number;
+    makingChargeType: ChargeType;
+    makingChargeValue: number;
+    wastageType: ChargeType;
+    wastageValue: number;
+    stoneChargeAmount: number;
+    otherChargesAmount: number;
+    taxRatePercent: number;
+    purchaseCost?: number;
+    customerPrice?: number;
+  }): Promise<{ breakdown: PriceBreakdown; purchaseCost: number | null; profitOrLoss: number | null }> {
+    const res = await apiClient.post<{ breakdown: BackendPriceBreakdown; purchase_cost: number | null; profit_or_loss: number | null }>(
+      '/billing/inventory/preview-price',
+      {
+        purity: input.purity,
+        net_gold_weight_grams: input.netGoldWeightGrams,
+        making_charge_type: input.makingChargeType,
+        making_charge_value: input.makingChargeValue,
+        wastage_type: input.wastageType,
+        wastage_value: input.wastageValue,
+        stone_charge_amount: input.stoneChargeAmount,
+        other_charges_amount: input.otherChargesAmount,
+        tax_rate_percent: input.taxRatePercent,
+        gst_applied: true,
+        purchase_cost: input.purchaseCost ?? null,
+        customer_price: input.customerPrice ?? null,
+      },
       { auth: true }
     );
-    return mapVendor(res.data.vendor);
+    return {
+      breakdown: mapBreakdown(res.data.breakdown),
+      purchaseCost: res.data.purchase_cost,
+      profitOrLoss: res.data.profit_or_loss,
+    };
   },
 
   /* Bulk Purchase */
@@ -680,6 +907,7 @@ export const billingService = {
         discount_amount: data.discountAmount ?? 0,
         customer_price: data.customerPrice ?? null,
         gst_applied: data.gstApplied ?? true,
+        pricing_mode: data.pricingMode ?? null,
         payment_method: data.paymentMethod ?? 'CASH',
         payment_status: data.paymentStatus ?? 'PAID',
       },
