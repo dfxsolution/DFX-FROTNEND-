@@ -634,8 +634,8 @@ function BillingSummarySection({ loading, summary }: { loading: boolean; summary
 
   const cards = [
     { label: "Today's Sales", val: formatCurrency(today.totalSales), icon: Receipt, color: 'text-blue-600 bg-blue-50 border-blue-200' },
-    { label: "Today's Profit", val: `🟢 ${formatCurrency(today.totalProfit)}`, icon: TrendingUp, color: 'text-emerald-600 bg-emerald-50 border-emerald-200' },
-    { label: "Today's Loss", val: `🔴 ${formatCurrency(today.totalLoss)}`, icon: TrendingUp, color: 'text-red-600 bg-red-50 border-red-200' },
+    { label: "Today's Profit", val: today.totalProfit !== null ? `🟢 ${formatCurrency(today.totalProfit)}` : '—', icon: TrendingUp, color: 'text-emerald-600 bg-emerald-50 border-emerald-200' },
+    { label: "Today's Loss", val: today.totalLoss !== null ? `🔴 ${formatCurrency(today.totalLoss)}` : '—', icon: TrendingUp, color: 'text-red-600 bg-red-50 border-red-200' },
     { label: "Today's Bills", val: String(today.billCount), icon: PackageCheck, color: 'text-amber-600 bg-amber-50 border-amber-200' },
     { label: 'Items Sold', val: String(today.itemsSold), icon: ShoppingBag, color: 'text-teal-600 bg-teal-50 border-teal-200' },
     { label: "Today's Gold Rate", val: todayGoldRate24k !== null ? `${formatCurrency(todayGoldRate24k)}/g` : 'Not set', icon: Gem, color: 'text-gold bg-gold/10 border-gold/30' },
@@ -667,8 +667,8 @@ function BillingSummarySection({ loading, summary }: { loading: boolean; summary
         <div className="bg-white p-4 rounded-2xl border border-slate-200 shadow-xs flex flex-wrap items-center gap-x-6 gap-y-2 text-xs">
           <span className="font-bold text-slate-500 uppercase tracking-wider text-[10px]">This Month</span>
           <span className="font-mono font-bold text-[#0B0E23]">Sales {formatCurrency(thisMonth.totalSales)}</span>
-          <span className="font-mono font-bold text-emerald-600">🟢 Profit {formatCurrency(thisMonth.totalProfit)}</span>
-          {thisMonth.totalLoss > 0 && <span className="font-mono font-bold text-red-600">🔴 Loss {formatCurrency(thisMonth.totalLoss)}</span>}
+          {thisMonth.totalProfit !== null && <span className="font-mono font-bold text-emerald-600">🟢 Profit {formatCurrency(thisMonth.totalProfit)}</span>}
+          {thisMonth.totalLoss !== null && thisMonth.totalLoss > 0 && <span className="font-mono font-bold text-red-600">🔴 Loss {formatCurrency(thisMonth.totalLoss)}</span>}
           <span className="font-mono font-bold text-slate-600">{thisMonth.itemsSold} items sold</span>
           <span className="font-mono font-bold text-slate-600">{thisMonth.billCount} bills</span>
         </div>

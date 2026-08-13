@@ -589,8 +589,8 @@ async function downloadBlob(path: string, filename: string): Promise<void> {
 
 export interface BillingPeriodSummary {
   totalSales: number;
-  totalProfit: number;
-  totalLoss: number;
+  totalProfit: number | null;
+  totalLoss: number | null;
   billCount: number;
   itemsSold: number;
 }
@@ -615,8 +615,8 @@ export interface BillingDashboardSummary {
 
 interface BackendBillingPeriodSummary {
   total_sales: number;
-  total_profit: number;
-  total_loss: number;
+  total_profit: number | null;
+  total_loss: number | null;
   bill_count: number;
   items_sold: number;
 }
