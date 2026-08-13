@@ -434,6 +434,7 @@ function mapBreakdown(raw: BackendPriceBreakdown): PriceBreakdown {
 export interface SaleQuote {
   inventoryItem: InventoryItem;
   breakdown: PriceBreakdown;
+  profitOrLoss: number | null;
 }
 
 export interface SaleCreateData {
@@ -916,13 +917,14 @@ export const billingService = {
   ): Promise<SaleQuote> {
     const query = new URLSearchParams({ discount_amount: String(discountAmount), gst_applied: String(gstApplied) });
     if (customerPrice !== undefined) query.set('customer_price', String(customerPrice));
-    const res = await apiClient.get<{ inventory_item: BackendInventoryItem; breakdown: BackendPriceBreakdown }>(
+    const res = await apiClient.get<{ inventory_item: BackendInventoryItem; breakdown: BackendPriceBreakdown; profit_or_loss: number | null }>(
       `/billing/sell/quote/${encodeURIComponent(productCode)}?${query.toString()}`,
       { auth: true }
     );
     return {
       inventoryItem: mapInventoryItem(res.data.inventory_item),
       breakdown: mapBreakdown(res.data.breakdown),
+      profitOrLoss: res.data.profit_or_loss,
     };
   },
 

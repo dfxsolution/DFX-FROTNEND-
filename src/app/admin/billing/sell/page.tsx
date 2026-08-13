@@ -8,7 +8,7 @@ import { Badge } from '@/components/ui/badge';
 import { Select } from '@/components/ui/form-controls';
 import { Toast } from '@/components/ui/toast';
 import { Dialog, DialogFooter } from '@/components/ui/dialog';
-import { Calculator, ScanLine, CheckCircle2, RotateCcw, Gem, Download, FileSpreadsheet, Printer } from 'lucide-react';
+import { Calculator, ScanLine, CheckCircle2, RotateCcw, Gem } from 'lucide-react';
 import {
   billingService, SaleQuote, Sale, PaymentMethod, PaymentStatus,
   PAYMENT_METHOD_OPTIONS, PAYMENT_STATUS_OPTIONS,
@@ -16,7 +16,7 @@ import {
 import { ApiError } from '@/lib/apiClient';
 import { formatCurrency, formatWeight } from '@/lib/formatters';
 import { PriceBreakdownCard } from '../_components/PriceBreakdownCard';
-import { printInvoice } from '../_components/printInvoice';
+import { InvoiceActions } from '../_components/InvoiceActions';
 import { useTenant } from '@/hooks/useTenant';
 
 type Stage = 'scan' | 'loading' | 'review' | 'success';
@@ -207,6 +207,7 @@ export default function NewSalePage() {
             onCustomerPriceCommit={(v) => recalculate(v, gstApplied)}
             recalculating={recalculating}
             error={priceError}
+            profitOrLoss={quote.profitOrLoss}
           />
 
           <div className="rounded-2xl border border-slate-200 bg-white p-4 flex items-center justify-between gap-3">
@@ -285,15 +286,7 @@ export default function NewSalePage() {
             {completedSale.productCode} — {completedSale.productName} is now marked SOLD.
           </p>
           <div className="flex flex-wrap gap-2 justify-center">
-            <Button variant="outline" size="sm" onClick={() => billingService.downloadInvoicePdf(completedSale.id, completedSale.invoiceNumber)}>
-              <Download className="h-3.5 w-3.5 mr-1.5" /> PDF
-            </Button>
-            <Button variant="outline" size="sm" onClick={() => billingService.downloadInvoiceExcel(completedSale.id, completedSale.invoiceNumber)}>
-              <FileSpreadsheet className="h-3.5 w-3.5 mr-1.5" /> Excel
-            </Button>
-            <Button variant="outline" size="sm" onClick={() => printInvoice(completedSale, branding.brandName)}>
-              <Printer className="h-3.5 w-3.5 mr-1.5" /> Print
-            </Button>
+            <InvoiceActions sale={completedSale} businessName={branding.brandName} />
           </div>
           <Button className="w-full max-w-xs h-12" onClick={resetToScan}>
             <ScanLine className="h-4 w-4 mr-2" /> Start Next Sale
@@ -348,6 +341,7 @@ function PriceComparisonPanel({
   onCustomerPriceCommit,
   recalculating,
   error,
+  profitOrLoss,
 }: {
   purchaseCost: number | null;
   todaysGoldValue: number;
@@ -357,12 +351,15 @@ function PriceComparisonPanel({
   onCustomerPriceCommit: (v: string) => void;
   recalculating: boolean;
   error: string;
+  /** Backend-computed (subtotal before tax − historical purchase cost) —
+   * never re-derived client-side. Null when purchase cost isn't tracked
+   * or the caller is a non-privileged Staff role. */
+  profitOrLoss: number | null;
 }) {
   const parsed = parseFloat(customerPrice);
   const hasPrice = customerPrice.trim() !== '' && !isNaN(parsed);
-  const profitLoss = hasPrice && purchaseCost !== null ? parsed - purchaseCost : null;
   const difference = hasPrice ? parsed - sellingPrice : null;
-  const isProfit = profitLoss !== null && profitLoss >= 0;
+  const isProfit = profitOrLoss !== null && profitOrLoss >= 0;
 
   return (
     <div className="rounded-2xl border border-slate-200 bg-white p-5 space-y-4">
@@ -405,13 +402,13 @@ function PriceComparisonPanel({
             <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Difference</p>
             <p className="font-mono font-bold text-sm text-[#0B0E23]">{formatCurrency(difference ?? 0)}</p>
           </div>
-          {profitLoss !== null && (
+          {profitOrLoss !== null && (
             <div className={`rounded-xl p-3 text-center border ${isProfit ? 'bg-emerald-50 border-emerald-200' : 'bg-red-50 border-red-200'}`}>
               <p className={`text-[10px] font-bold uppercase tracking-wider ${isProfit ? 'text-emerald-700' : 'text-red-700'}`}>
                 {isProfit ? '🟢 Profit' : '🔴 Loss'}
               </p>
               <p className={`font-mono font-extrabold text-sm ${isProfit ? 'text-emerald-700' : 'text-red-700'}`}>
-                {formatCurrency(Math.abs(profitLoss))}
+                {formatCurrency(Math.abs(profitOrLoss))}
               </p>
             </div>
           )}

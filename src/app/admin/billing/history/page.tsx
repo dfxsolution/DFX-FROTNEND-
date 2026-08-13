@@ -7,13 +7,13 @@ import { Input } from '@/components/ui/input';
 import { Skeleton } from '@/components/ui/skeleton';
 import { EmptyState } from '@/components/ui/empty-state';
 import { Dialog, DialogFooter } from '@/components/ui/dialog';
-import { Receipt, Search, FileX, Download, FileSpreadsheet, Printer } from 'lucide-react';
+import { Receipt, Search, FileX } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { billingService, Sale } from '@/services/billingService';
 import { ApiError } from '@/lib/apiClient';
 import { formatCurrency, formatWeight } from '@/lib/formatters';
 import { PriceBreakdownCard } from '../_components/PriceBreakdownCard';
-import { printInvoice } from '../_components/printInvoice';
+import { InvoiceActions } from '../_components/InvoiceActions';
 import { useTenant } from '@/hooks/useTenant';
 
 export default function SalesHistoryPage() {
@@ -180,19 +180,7 @@ export default function SalesHistoryPage() {
           </div>
         )}
         <DialogFooter>
-          {selected && (
-            <>
-              <Button variant="outline" size="sm" onClick={() => billingService.downloadInvoicePdf(selected.id, selected.invoiceNumber)}>
-                <Download className="h-3.5 w-3.5 mr-1.5" /> PDF
-              </Button>
-              <Button variant="outline" size="sm" onClick={() => billingService.downloadInvoiceExcel(selected.id, selected.invoiceNumber)}>
-                <FileSpreadsheet className="h-3.5 w-3.5 mr-1.5" /> Excel
-              </Button>
-              <Button variant="outline" size="sm" onClick={() => printInvoice(selected, branding.brandName)}>
-                <Printer className="h-3.5 w-3.5 mr-1.5" /> Print
-              </Button>
-            </>
-          )}
+          {selected && <InvoiceActions sale={selected} businessName={branding.brandName} />}
           <Button variant="outline" onClick={() => setSelected(null)}>Close</Button>
         </DialogFooter>
       </Dialog>
