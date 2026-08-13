@@ -19,8 +19,7 @@ interface DefaultsForm {
   makingChargeValue: string;
   wastageType: ChargeType;
   wastageValue: string;
-  stoneChargeAmount: string;
-  otherChargesAmount: string;
+  goldProfitPercent: string;
   taxRatePercent: string;
   defaultPricingMode: string;
 }
@@ -28,7 +27,7 @@ interface DefaultsForm {
 const emptyForm: DefaultsForm = {
   makingChargeType: 'PERCENTAGE', makingChargeValue: '',
   wastageType: 'PERCENTAGE', wastageValue: '',
-  stoneChargeAmount: '', otherChargesAmount: '', taxRatePercent: '', defaultPricingMode: '',
+  goldProfitPercent: '', taxRatePercent: '', defaultPricingMode: '',
 };
 
 function toPayload(f: DefaultsForm) {
@@ -37,8 +36,7 @@ function toPayload(f: DefaultsForm) {
     makingChargeValue: f.makingChargeValue ? parseFloat(f.makingChargeValue) : undefined,
     wastageType: f.wastageValue ? f.wastageType : undefined,
     wastageValue: f.wastageValue ? parseFloat(f.wastageValue) : undefined,
-    stoneChargeAmount: f.stoneChargeAmount ? parseFloat(f.stoneChargeAmount) : undefined,
-    otherChargesAmount: f.otherChargesAmount ? parseFloat(f.otherChargesAmount) : undefined,
+    goldProfitPercent: f.goldProfitPercent ? parseFloat(f.goldProfitPercent) : undefined,
     taxRatePercent: f.taxRatePercent ? parseFloat(f.taxRatePercent) : undefined,
     defaultPricingMode: (f.defaultPricingMode || undefined) as any,
   };
@@ -63,11 +61,8 @@ function DefaultsFields({ form, setForm }: { form: DefaultsForm; setForm: (f: De
       <Field label="Wastage Value">
         <Input type="number" step="0.01" value={form.wastageValue} onChange={(e) => setForm({ ...form, wastageValue: e.target.value })} />
       </Field>
-      <Field label="Stone Charge (₹)">
-        <Input type="number" step="0.01" value={form.stoneChargeAmount} onChange={(e) => setForm({ ...form, stoneChargeAmount: e.target.value })} />
-      </Field>
-      <Field label="Other Charges (₹)">
-        <Input type="number" step="0.01" value={form.otherChargesAmount} onChange={(e) => setForm({ ...form, otherChargesAmount: e.target.value })} />
+      <Field label="Gold Profit %">
+        <Input type="number" step="0.01" value={form.goldProfitPercent} onChange={(e) => setForm({ ...form, goldProfitPercent: e.target.value })} />
       </Field>
       <Field label="GST %">
         <Input type="number" step="0.01" value={form.taxRatePercent} onChange={(e) => setForm({ ...form, taxRatePercent: e.target.value })} />
@@ -113,8 +108,7 @@ export function BillingDefaultsDialog({ isOpen, onClose }: { isOpen: boolean; on
       makingChargeValue: d.makingChargeValue?.toString() ?? '',
       wastageType: d.wastageType || 'PERCENTAGE',
       wastageValue: d.wastageValue?.toString() ?? '',
-      stoneChargeAmount: d.stoneChargeAmount?.toString() ?? '',
-      otherChargesAmount: d.otherChargesAmount?.toString() ?? '',
+      goldProfitPercent: d.goldProfitPercent?.toString() ?? '',
       taxRatePercent: d.taxRatePercent?.toString() ?? '',
       defaultPricingMode: d.defaultPricingMode || '',
     })).catch(() => {});
@@ -141,8 +135,7 @@ export function BillingDefaultsDialog({ isOpen, onClose }: { isOpen: boolean; on
       makingChargeValue: c.makingChargeValue?.toString() ?? '',
       wastageType: c.wastageType || 'PERCENTAGE',
       wastageValue: c.wastageValue?.toString() ?? '',
-      stoneChargeAmount: c.stoneChargeAmount?.toString() ?? '',
-      otherChargesAmount: c.otherChargesAmount?.toString() ?? '',
+      goldProfitPercent: c.goldProfitPercent?.toString() ?? '',
       taxRatePercent: c.taxRatePercent?.toString() ?? '',
       defaultPricingMode: c.defaultPricingMode || '',
     });

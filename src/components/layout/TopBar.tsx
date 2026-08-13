@@ -59,7 +59,7 @@ export const TopBar: React.FC = () => {
       {/* Right side: Actions & Profile */}
       <div className="flex items-center gap-1.5 sm:gap-4 shrink-0">
         <button
-          onClick={() => router.push(isSuperAdmin ? '/superadmin/audit' : '/admin/appointments')}
+          onClick={() => router.push(isSuperAdmin ? '/superadmin/audit' : '/admin/notifications')}
           className="relative p-2 text-slate-400 hover:text-[#0B0E23] transition-colors rounded-xl hover:bg-slate-100"
           title="Notifications & Bookings"
         >

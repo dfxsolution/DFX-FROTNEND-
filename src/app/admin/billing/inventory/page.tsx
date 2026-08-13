@@ -55,6 +55,7 @@ const emptyForm: InventoryItemFormData = {
   makingChargeValue: 0,
   wastageType: 'PERCENTAGE',
   wastageValue: 0,
+  goldProfitPercent: 0,
   stoneChargeAmount: 0,
   otherChargesAmount: 0,
   taxRatePercent: 3,
@@ -149,6 +150,7 @@ export default function InventoryPage() {
       makingChargeValue: item.makingChargeValue,
       wastageType: item.wastageType,
       wastageValue: item.wastageValue,
+      goldProfitPercent: item.goldProfitPercent,
       stoneChargeAmount: item.stoneChargeAmount,
       otherChargesAmount: item.otherChargesAmount,
       taxRatePercent: item.taxRatePercent,
@@ -476,6 +478,10 @@ export default function InventoryPage() {
             <Field label="Wastage Value">
               <Input type="number" step="0.01" min="0" value={form.wastageValue} disabled={isSold}
                 onChange={(e) => setForm({ ...form, wastageValue: parseFloat(e.target.value) || 0 })} />
+            </Field>
+            <Field label="Gold Profit %">
+              <Input type="number" step="0.01" min="0" max="100" value={form.goldProfitPercent} disabled={isSold}
+                onChange={(e) => setForm({ ...form, goldProfitPercent: parseFloat(e.target.value) || 0 })} />
             </Field>
             <Field label="Stone Charge (₹)">
               <Input type="number" step="0.01" min="0" value={form.stoneChargeAmount} disabled={isSold}

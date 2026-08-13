@@ -35,8 +35,7 @@ interface BackendBillingDefaultFields {
   making_charge_value: number | null;
   wastage_type: ChargeType | null;
   wastage_value: number | null;
-  stone_charge_amount: number | null;
-  other_charges_amount: number | null;
+  gold_profit_percent: number | null;
   tax_rate_percent: number | null;
   default_pricing_mode: PricingMode | null;
 }
@@ -46,8 +45,7 @@ export interface BillingDefaultFields {
   makingChargeValue: number | null;
   wastageType: ChargeType | null;
   wastageValue: number | null;
-  stoneChargeAmount: number | null;
-  otherChargesAmount: number | null;
+  goldProfitPercent: number | null;
   taxRatePercent: number | null;
   defaultPricingMode: PricingMode | null;
 }
@@ -58,8 +56,7 @@ function mapDefaultFields(raw: BackendBillingDefaultFields): BillingDefaultField
     makingChargeValue: raw.making_charge_value,
     wastageType: raw.wastage_type,
     wastageValue: raw.wastage_value,
-    stoneChargeAmount: raw.stone_charge_amount,
-    otherChargesAmount: raw.other_charges_amount,
+    goldProfitPercent: raw.gold_profit_percent,
     taxRatePercent: raw.tax_rate_percent,
     defaultPricingMode: raw.default_pricing_mode,
   };
@@ -71,8 +68,7 @@ function toBackendDefaultFields(data: Partial<BillingDefaultFields>) {
     making_charge_value: data.makingChargeValue ?? null,
     wastage_type: data.wastageType ?? null,
     wastage_value: data.wastageValue ?? null,
-    stone_charge_amount: data.stoneChargeAmount ?? null,
-    other_charges_amount: data.otherChargesAmount ?? null,
+    gold_profit_percent: data.goldProfitPercent ?? null,
     tax_rate_percent: data.taxRatePercent ?? null,
     default_pricing_mode: data.defaultPricingMode ?? null,
   };
@@ -163,8 +159,7 @@ interface BackendResolvedDefaults {
   making_charge_value: number | null;
   wastage_type: ChargeType | null;
   wastage_value: number | null;
-  stone_charge_amount: number | null;
-  other_charges_amount: number | null;
+  gold_profit_percent: number | null;
   tax_rate_percent: number | null;
   pricing_mode: PricingMode | null;
   sources: Record<string, DefaultSource>;
@@ -175,8 +170,7 @@ export interface ResolvedDefaults {
   makingChargeValue: number | null;
   wastageType: ChargeType | null;
   wastageValue: number | null;
-  stoneChargeAmount: number | null;
-  otherChargesAmount: number | null;
+  goldProfitPercent: number | null;
   taxRatePercent: number | null;
   pricingMode: PricingMode | null;
   sources: Record<string, DefaultSource>;
@@ -188,8 +182,7 @@ function mapResolvedDefaults(raw: BackendResolvedDefaults): ResolvedDefaults {
     makingChargeValue: raw.making_charge_value,
     wastageType: raw.wastage_type,
     wastageValue: raw.wastage_value,
-    stoneChargeAmount: raw.stone_charge_amount,
-    otherChargesAmount: raw.other_charges_amount,
+    goldProfitPercent: raw.gold_profit_percent,
     taxRatePercent: raw.tax_rate_percent,
     pricingMode: raw.pricing_mode,
     sources: raw.sources,
@@ -223,6 +216,7 @@ interface BackendInventoryItem {
   making_charge_value: number;
   wastage_type: ChargeType;
   wastage_value: number;
+  gold_profit_percent: number;
   stone_charge_amount: number;
   other_charges_amount: number;
   tax_rate_percent: number;
@@ -254,6 +248,7 @@ export interface InventoryItem {
   makingChargeValue: number;
   wastageType: ChargeType;
   wastageValue: number;
+  goldProfitPercent: number;
   stoneChargeAmount: number;
   otherChargesAmount: number;
   taxRatePercent: number;
@@ -281,6 +276,7 @@ export interface InventoryItemFormData {
   makingChargeValue: number;
   wastageType: ChargeType;
   wastageValue: number;
+  goldProfitPercent: number;
   stoneChargeAmount: number;
   otherChargesAmount: number;
   taxRatePercent: number;
@@ -310,6 +306,7 @@ function mapInventoryItem(raw: BackendInventoryItem): InventoryItem {
     makingChargeValue: raw.making_charge_value,
     wastageType: raw.wastage_type,
     wastageValue: raw.wastage_value,
+    goldProfitPercent: raw.gold_profit_percent,
     stoneChargeAmount: raw.stone_charge_amount,
     otherChargesAmount: raw.other_charges_amount,
     taxRatePercent: raw.tax_rate_percent,
@@ -339,6 +336,7 @@ function toBackendInventoryPayload(data: Partial<InventoryItemFormData>) {
     making_charge_value: data.makingChargeValue,
     wastage_type: data.wastageType,
     wastage_value: data.wastageValue,
+    gold_profit_percent: data.goldProfitPercent,
     stone_charge_amount: data.stoneChargeAmount,
     other_charges_amount: data.otherChargesAmount,
     tax_rate_percent: data.taxRatePercent,
@@ -365,6 +363,8 @@ export interface PriceBreakdown {
   wastageType: ChargeType;
   wastageValue: number;
   wastageAmount: number;
+  goldProfitPercent: number;
+  goldProfitAmount: number;
   stoneChargeAmount: number;
   otherChargesAmount: number;
   subtotalBeforeTax: number;
@@ -390,6 +390,8 @@ interface BackendPriceBreakdown {
   wastage_type: ChargeType;
   wastage_value: number;
   wastage_amount: number;
+  gold_profit_percent: number;
+  gold_profit_amount: number;
   stone_charge_amount: number;
   other_charges_amount: number;
   subtotal_before_tax: number;
@@ -416,6 +418,8 @@ function mapBreakdown(raw: BackendPriceBreakdown): PriceBreakdown {
     wastageType: raw.wastage_type,
     wastageValue: raw.wastage_value,
     wastageAmount: raw.wastage_amount,
+    goldProfitPercent: raw.gold_profit_percent,
+    goldProfitAmount: raw.gold_profit_amount,
     stoneChargeAmount: raw.stone_charge_amount,
     otherChargesAmount: raw.other_charges_amount,
     subtotalBeforeTax: raw.subtotal_before_tax,
@@ -530,6 +534,7 @@ export interface BulkPurchaseLineItem {
   makingChargeValue: number;
   wastageType: ChargeType;
   wastageValue: number;
+  goldProfitPercent: number;
   stoneChargeAmount: number;
   otherChargesAmount: number;
   taxRatePercent: number;
@@ -559,6 +564,7 @@ function toBackendLineItem(i: BulkPurchaseLineItem) {
     making_charge_value: i.makingChargeValue,
     wastage_type: i.wastageType,
     wastage_value: i.wastageValue,
+    gold_profit_percent: i.goldProfitPercent,
     stone_charge_amount: i.stoneChargeAmount,
     other_charges_amount: i.otherChargesAmount,
     tax_rate_percent: i.taxRatePercent,
@@ -593,7 +599,13 @@ export interface BillingPeriodSummary {
   totalLoss: number | null;
   billCount: number;
   itemsSold: number;
+  totalTax: number;
+  avgBillValue: number;
 }
+
+export type BusinessHistoryPeriod =
+  | 'today' | 'yesterday' | 'this_week' | 'last_week'
+  | 'this_month' | 'last_month' | 'last_3_months' | 'last_6_months' | 'last_12_months';
 
 export interface RecentSale {
   id: string;
@@ -611,6 +623,10 @@ export interface BillingDashboardSummary {
   thisMonth: BillingPeriodSummary;
   todayGoldRate24k: number | null;
   recentSales: RecentSale[];
+  selectedPeriod: BillingPeriodSummary;
+  selectedPeriodLabel: string;
+  selectedDateFrom: string;
+  selectedDateTo: string;
 }
 
 interface BackendBillingPeriodSummary {
@@ -619,6 +635,8 @@ interface BackendBillingPeriodSummary {
   total_loss: number | null;
   bill_count: number;
   items_sold: number;
+  total_tax: number;
+  avg_bill_value: number;
 }
 
 interface BackendRecentSale {
@@ -637,6 +655,10 @@ interface BackendBillingDashboardSummary {
   this_month: BackendBillingPeriodSummary;
   today_gold_rate_24k: number | null;
   recent_sales: BackendRecentSale[];
+  selected_period: BackendBillingPeriodSummary;
+  selected_period_label: string;
+  selected_date_from: string;
+  selected_date_to: string;
 }
 
 function mapPeriodSummary(raw: BackendBillingPeriodSummary): BillingPeriodSummary {
@@ -646,6 +668,8 @@ function mapPeriodSummary(raw: BackendBillingPeriodSummary): BillingPeriodSummar
     totalLoss: raw.total_loss,
     billCount: raw.bill_count,
     itemsSold: raw.items_sold,
+    totalTax: raw.total_tax,
+    avgBillValue: raw.avg_bill_value,
   };
 }
 
@@ -654,6 +678,10 @@ function mapDashboardSummary(raw: BackendBillingDashboardSummary): BillingDashbo
     today: mapPeriodSummary(raw.today),
     thisMonth: mapPeriodSummary(raw.this_month),
     todayGoldRate24k: raw.today_gold_rate_24k,
+    selectedPeriod: mapPeriodSummary(raw.selected_period),
+    selectedPeriodLabel: raw.selected_period_label,
+    selectedDateFrom: raw.selected_date_from,
+    selectedDateTo: raw.selected_date_to,
     recentSales: raw.recent_sales.map((s) => ({
       id: s.id,
       invoiceNumber: s.invoice_number,
@@ -755,6 +783,7 @@ export const billingService = {
     makingChargeValue: number;
     wastageType: ChargeType;
     wastageValue: number;
+    goldProfitPercent: number;
     stoneChargeAmount: number;
     otherChargesAmount: number;
     taxRatePercent: number;
@@ -770,6 +799,7 @@ export const billingService = {
         making_charge_value: input.makingChargeValue,
         wastage_type: input.wastageType,
         wastage_value: input.wastageValue,
+        gold_profit_percent: input.goldProfitPercent,
         stone_charge_amount: input.stoneChargeAmount,
         other_charges_amount: input.otherChargesAmount,
         tax_rate_percent: input.taxRatePercent,
@@ -944,8 +974,9 @@ export const billingService = {
   },
 
   /* Dashboard */
-  async getDashboardSummary(): Promise<BillingDashboardSummary> {
-    const res = await apiClient.get<BackendBillingDashboardSummary>('/billing/dashboard-summary', { auth: true });
+  async getDashboardSummary(period?: BusinessHistoryPeriod): Promise<BillingDashboardSummary> {
+    const query = period ? `?period=${period}` : '';
+    const res = await apiClient.get<BackendBillingDashboardSummary>(`/billing/dashboard-summary${query}`, { auth: true });
     return mapDashboardSummary(res.data);
   },
 };

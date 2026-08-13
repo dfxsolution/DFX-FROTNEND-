@@ -36,6 +36,7 @@ interface Row {
   makingChargeValue: string;
   wastageType: ChargeType;
   wastageValue: string;
+  goldProfitPercent: string;
   stoneChargeAmount: string;
   otherChargesAmount: string;
   taxRatePercent: string;
@@ -56,6 +57,7 @@ function emptyRow(): Row {
     grossWeightGrams: '', netGoldWeightGrams: '', purchaseRatePerGram: '', purchaseCost: '',
     makingChargeType: 'PERCENTAGE', makingChargeValue: '',
     wastageType: 'PERCENTAGE', wastageValue: '',
+    goldProfitPercent: '',
     stoneChargeAmount: '', otherChargesAmount: '', taxRatePercent: '',
     pricingMode: 'AUTO', customerPrice: '',
     advancedOpen: false, selected: false, sources: {},
@@ -67,6 +69,7 @@ const APPLY_FIELD_OPTIONS: { value: string; label: string; fields: (keyof Row)[]
   { value: 'gst', label: 'GST', fields: ['taxRatePercent'] },
   { value: 'making', label: 'Making Charge', fields: ['makingChargeType', 'makingChargeValue'] },
   { value: 'wastage', label: 'Wastage', fields: ['wastageType', 'wastageValue'] },
+  { value: 'goldProfit', label: 'Gold Profit %', fields: ['goldProfitPercent'] },
   { value: 'stone', label: 'Stone Charges', fields: ['stoneChargeAmount'] },
   { value: 'other', label: 'Other Charges', fields: ['otherChargesAmount'] },
   { value: 'mode', label: 'Pricing Mode', fields: ['pricingMode'] },
@@ -109,6 +112,7 @@ export function BulkPurchaseDialog({
         next.wastageType = fields.wastageType as ChargeType;
         next.wastageValue = fields.wastageValue as string;
       }
+      if (!next.goldProfitPercent && fields.goldProfitPercent !== undefined) next.goldProfitPercent = fields.goldProfitPercent as string;
       if (!next.stoneChargeAmount && fields.stoneChargeAmount !== undefined) next.stoneChargeAmount = fields.stoneChargeAmount as string;
       if (!next.otherChargesAmount && fields.otherChargesAmount !== undefined) next.otherChargesAmount = fields.otherChargesAmount as string;
       if (!next.taxRatePercent && fields.taxRatePercent !== undefined) next.taxRatePercent = fields.taxRatePercent as string;
@@ -127,8 +131,7 @@ export function BulkPurchaseDialog({
         makingChargeValue: resolved.makingChargeValue?.toString(),
         wastageType: resolved.wastageType || undefined,
         wastageValue: resolved.wastageValue?.toString(),
-        stoneChargeAmount: resolved.stoneChargeAmount?.toString(),
-        otherChargesAmount: resolved.otherChargesAmount?.toString(),
+        goldProfitPercent: resolved.goldProfitPercent?.toString(),
         taxRatePercent: resolved.taxRatePercent?.toString(),
         pricingMode: resolved.pricingMode || undefined,
       }, resolved.sources);
@@ -205,6 +208,7 @@ export function BulkPurchaseDialog({
         makingChargeValue: parseFloat(row.makingChargeValue) || 0,
         wastageType: row.wastageType,
         wastageValue: parseFloat(row.wastageValue) || 0,
+        goldProfitPercent: parseFloat(row.goldProfitPercent) || 0,
         stoneChargeAmount: parseFloat(row.stoneChargeAmount) || 0,
         otherChargesAmount: parseFloat(row.otherChargesAmount) || 0,
         taxRatePercent: parseFloat(row.taxRatePercent) || 0,
@@ -243,6 +247,7 @@ export function BulkPurchaseDialog({
         purchaseCost: r.purchaseCost ? parseFloat(r.purchaseCost) : undefined,
         makingChargeType: r.makingChargeType, makingChargeValue: parseFloat(r.makingChargeValue) || 0,
         wastageType: r.wastageType, wastageValue: parseFloat(r.wastageValue) || 0,
+        goldProfitPercent: parseFloat(r.goldProfitPercent) || 0,
         stoneChargeAmount: parseFloat(r.stoneChargeAmount) || 0,
         otherChargesAmount: parseFloat(r.otherChargesAmount) || 0,
         taxRatePercent: parseFloat(r.taxRatePercent),
@@ -407,10 +412,13 @@ export function BulkPurchaseDialog({
                             <AdvField label="Wastage Value">
                               <Input type="number" step="0.01" className="h-8 text-xs" value={row.wastageValue} onChange={(e) => updateRow(row.key, { wastageValue: e.target.value })} onBlur={() => refreshPreview(row.key)} />
                             </AdvField>
-                            <AdvField label={sourceLabel('Stone ₹', row.sources.stone_charge_amount)}>
+                            <AdvField label={sourceLabel('Gold Profit %', row.sources.gold_profit_percent)}>
+                              <Input type="number" step="0.01" className="h-8 text-xs" value={row.goldProfitPercent} onChange={(e) => updateRow(row.key, { goldProfitPercent: e.target.value })} onBlur={() => refreshPreview(row.key)} />
+                            </AdvField>
+                            <AdvField label="Stone ₹">
                               <Input type="number" step="0.01" className="h-8 text-xs" value={row.stoneChargeAmount} onChange={(e) => updateRow(row.key, { stoneChargeAmount: e.target.value })} onBlur={() => refreshPreview(row.key)} />
                             </AdvField>
-                            <AdvField label={sourceLabel('Other ₹', row.sources.other_charges_amount)}>
+                            <AdvField label="Other ₹">
                               <Input type="number" step="0.01" className="h-8 text-xs" value={row.otherChargesAmount} onChange={(e) => updateRow(row.key, { otherChargesAmount: e.target.value })} onBlur={() => refreshPreview(row.key)} />
                             </AdvField>
                             <AdvField label={sourceLabel('GST % *', row.sources.tax_rate_percent)}>

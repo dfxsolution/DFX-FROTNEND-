@@ -10,6 +10,7 @@ import { formatCurrency } from '@/lib/formatters';
 export function printInvoice(sale: Sale, businessName: string) {
   const rows = [
     ['Gold Value', sale.goldValueAmount],
+    ...(sale.goldProfitPercent > 0 ? [[`Gold Profit (${sale.goldProfitPercent}%)`, sale.goldProfitAmount] as const] : []),
     [`Making Charge (${sale.makingChargeType})`, sale.makingChargeAmount],
     [`Wastage (${sale.wastageType})`, sale.wastageAmount],
     ['Stone Charge', sale.stoneChargeAmount],

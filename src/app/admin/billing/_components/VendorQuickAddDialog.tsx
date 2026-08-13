@@ -20,8 +20,7 @@ interface FormState {
   makingChargeValue: string;
   wastageType: ChargeType;
   wastageValue: string;
-  stoneChargeAmount: string;
-  otherChargesAmount: string;
+  goldProfitPercent: string;
   taxRatePercent: string;
   defaultPricingMode: string;
 }
@@ -30,7 +29,7 @@ const emptyForm: FormState = {
   name: '', phone: '', gst: '',
   makingChargeType: 'PERCENTAGE', makingChargeValue: '',
   wastageType: 'PERCENTAGE', wastageValue: '',
-  stoneChargeAmount: '', otherChargesAmount: '', taxRatePercent: '', defaultPricingMode: '',
+  goldProfitPercent: '', taxRatePercent: '', defaultPricingMode: '',
 };
 
 export function VendorQuickAddDialog({
@@ -60,8 +59,7 @@ export function VendorQuickAddDialog({
         makingChargeValue: vendor.makingChargeValue?.toString() ?? '',
         wastageType: vendor.wastageType || 'PERCENTAGE',
         wastageValue: vendor.wastageValue?.toString() ?? '',
-        stoneChargeAmount: vendor.stoneChargeAmount?.toString() ?? '',
-        otherChargesAmount: vendor.otherChargesAmount?.toString() ?? '',
+        goldProfitPercent: vendor.goldProfitPercent?.toString() ?? '',
         taxRatePercent: vendor.taxRatePercent?.toString() ?? '',
         defaultPricingMode: vendor.defaultPricingMode || '',
       });
@@ -86,8 +84,7 @@ export function VendorQuickAddDialog({
       makingChargeValue: form.makingChargeValue ? parseFloat(form.makingChargeValue) : undefined,
       wastageType: form.wastageValue ? form.wastageType : undefined,
       wastageValue: form.wastageValue ? parseFloat(form.wastageValue) : undefined,
-      stoneChargeAmount: form.stoneChargeAmount ? parseFloat(form.stoneChargeAmount) : undefined,
-      otherChargesAmount: form.otherChargesAmount ? parseFloat(form.otherChargesAmount) : undefined,
+      goldProfitPercent: form.goldProfitPercent ? parseFloat(form.goldProfitPercent) : undefined,
       taxRatePercent: form.taxRatePercent ? parseFloat(form.taxRatePercent) : undefined,
       defaultPricingMode: (form.defaultPricingMode || undefined) as any,
     };
@@ -146,11 +143,8 @@ export function VendorQuickAddDialog({
             <MiniField label="Wastage Value">
               <Input type="number" step="0.01" value={form.wastageValue} onChange={(e) => setForm({ ...form, wastageValue: e.target.value })} />
             </MiniField>
-            <MiniField label="Stone Charge (₹)">
-              <Input type="number" step="0.01" value={form.stoneChargeAmount} onChange={(e) => setForm({ ...form, stoneChargeAmount: e.target.value })} />
-            </MiniField>
-            <MiniField label="Other Charges (₹)">
-              <Input type="number" step="0.01" value={form.otherChargesAmount} onChange={(e) => setForm({ ...form, otherChargesAmount: e.target.value })} />
+            <MiniField label="Gold Profit %">
+              <Input type="number" step="0.01" value={form.goldProfitPercent} onChange={(e) => setForm({ ...form, goldProfitPercent: e.target.value })} />
             </MiniField>
             <MiniField label="GST %">
               <Input type="number" step="0.01" value={form.taxRatePercent} onChange={(e) => setForm({ ...form, taxRatePercent: e.target.value })} />

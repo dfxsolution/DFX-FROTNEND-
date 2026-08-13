@@ -23,7 +23,7 @@ import {
   Gem,
   PackageCheck
 } from 'lucide-react';
-import { billingService, BillingDashboardSummary } from '@/services/billingService';
+import { billingService, BillingDashboardSummary, BusinessHistoryPeriod } from '@/services/billingService';
 import {
   AreaChart,
   Area,
@@ -136,13 +136,15 @@ export default function AdminDashboardPage() {
   // dashboard (see billing_service.py's require_admin_or_staff_module).
   const [billingSummary, setBillingSummary] = useState<BillingDashboardSummary | null>(null);
   const [billingLoading, setBillingLoading] = useState(true);
+  const [historyPeriod, setHistoryPeriod] = useState<BusinessHistoryPeriod>('today');
 
   useEffect(() => {
-    billingService.getDashboardSummary()
+    setBillingLoading(true);
+    billingService.getDashboardSummary(historyPeriod)
       .then(setBillingSummary)
       .catch(() => setBillingSummary(null))
       .finally(() => setBillingLoading(false));
-  }, []);
+  }, [historyPeriod]);
 
   const loadDashboard = async () => {
     setLoading(true);
@@ -248,13 +250,9 @@ export default function AdminDashboardPage() {
     },
   ];
 
-  // "Target" has no backing data (no target-setting feature exists) — every
-  // point gets a null value so the dashed target line simply doesn't draw,
-  // same treatment Module 12 used for chart series with no real data source.
   const collectionsChartData = (paymentWeek?.monthlyTrend ?? []).map((t) => ({
     date: t.label,
     collections: t.totalAmount,
-    target: null as number | null,
   }));
 
   const schemeDistribution = (schemeSummary?.schemes ?? [])
@@ -372,7 +370,12 @@ export default function AdminDashboardPage() {
       </div>
 
       {/* 3. BILLING BUSINESS SUMMARY — replaces the old insights-placeholder row */}
-      <BillingSummarySection loading={billingLoading} summary={billingSummary} />
+      <BillingSummarySection
+        loading={billingLoading}
+        summary={billingSummary}
+        historyPeriod={historyPeriod}
+        onHistoryPeriodChange={setHistoryPeriod}
+      />
 
       {/* 4. QUICK ACTIONS WITH DESCRIPTION */}
       <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
@@ -380,7 +383,7 @@ export default function AdminDashboardPage() {
           { title: 'View Customers', desc: 'Search customer directory', icon: UserPlus, path: '/admin/customers' },
           { title: 'Record Payment', desc: 'Collect installment', icon: CreditCard, path: '/admin/payments' },
           { title: 'Create Scheme', desc: 'Launch new plan', icon: Coins, path: '/admin/schemes' },
-          { title: 'Book Visit', desc: 'Schedule showroom visit', icon: Calendar, path: '/admin/appointments' },
+          { title: 'New Sale', desc: 'Bill a customer', icon: Calendar, path: '/admin/billing/sell' },
           { title: 'Add Jewellery', desc: 'Upload inventory item', icon: ShoppingBag, path: '/admin/catalogue' },
           { title: 'Generate Report', desc: 'Download business PDF', icon: FileSpreadsheet, path: '/admin/reports' },
         ].map((qa, idx) => {
@@ -406,15 +409,15 @@ export default function AdminDashboardPage() {
       {/* 5. CHARTS ROW WITH SUMMARIES & LEGENDS */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
 
-        {/* Collections vs Target Area Chart (2 Cols) */}
+        {/* Daily Collections Trend (2 Cols) */}
         <Card className="lg:col-span-2 p-5 border-slate-200 bg-white shadow-xs">
           <CardHeader className="p-0 mb-4 flex flex-row items-center justify-between">
             <div>
               <CardTitle className="text-base font-bold text-[#0B0E23]">
-                Daily Collections vs Monthly Target Trend
+                Daily Collections Trend
               </CardTitle>
               <p className="text-xs text-slate-500 font-medium">
-                Daily payments, last 7 days. No target-setting feature exists yet, so the target line is not shown.
+                Scheme installment collections, last 7 days.
               </p>
             </div>
             <Badge variant="gold">{paymentWeek?.range.label ?? 'Last 7 Days'}</Badge>
@@ -437,7 +440,6 @@ export default function AdminDashboardPage() {
                     contentStyle={{ backgroundColor: '#0B0E23', border: '1px solid rgba(44,111,189,0.3)', borderRadius: '12px', color: '#fff', fontSize: '12px' }}
                   />
                   <Area type="monotone" dataKey="collections" stroke="#2C6FBD" strokeWidth={3} fillOpacity={1} fill="url(#colGrad)" name="Collections" />
-                  <Area type="monotone" dataKey="target" stroke="#3B82F6" strokeWidth={2} strokeDasharray="4 4" fillOpacity={0} name="Target" />
                 </AreaChart>
               </ResponsiveContainer>
             </div>
@@ -619,7 +621,26 @@ export default function AdminDashboardPage() {
  * fetch 403s and `summary` stays null; that's shown as nothing rather than
  * an error, since it's expected, not a failure.
  */
-function BillingSummarySection({ loading, summary }: { loading: boolean; summary: BillingDashboardSummary | null }) {
+const HISTORY_PERIOD_OPTIONS: { value: BusinessHistoryPeriod; label: string }[] = [
+  { value: 'today', label: 'Today' },
+  { value: 'yesterday', label: 'Yesterday' },
+  { value: 'this_week', label: 'This Week' },
+  { value: 'last_week', label: 'Last Week' },
+  { value: 'this_month', label: 'This Month' },
+  { value: 'last_month', label: 'Last Month' },
+  { value: 'last_3_months', label: 'Last 3 Months' },
+  { value: 'last_6_months', label: 'Last 6 Months' },
+  { value: 'last_12_months', label: 'Last 12 Months' },
+];
+
+function BillingSummarySection({
+  loading, summary, historyPeriod, onHistoryPeriodChange,
+}: {
+  loading: boolean;
+  summary: BillingDashboardSummary | null;
+  historyPeriod: BusinessHistoryPeriod;
+  onHistoryPeriodChange: (p: BusinessHistoryPeriod) => void;
+}) {
   if (loading) {
     return (
       <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
@@ -629,7 +650,7 @@ function BillingSummarySection({ loading, summary }: { loading: boolean; summary
   }
   if (!summary) return null;
 
-  const { today, thisMonth, todayGoldRate24k, recentSales } = summary;
+  const { today, thisMonth, todayGoldRate24k, recentSales, selectedPeriod, selectedPeriodLabel } = summary;
   const hasToday = today.billCount > 0;
 
   const cards = [
@@ -673,6 +694,32 @@ function BillingSummarySection({ loading, summary }: { loading: boolean; summary
           <span className="font-mono font-bold text-slate-600">{thisMonth.billCount} bills</span>
         </div>
       )}
+
+      <div className="bg-white p-4 rounded-2xl border border-slate-200 shadow-xs space-y-3">
+        <div className="flex items-center justify-between gap-3">
+          <span className="font-bold text-slate-500 uppercase tracking-wider text-[10px]">Business History — {selectedPeriodLabel}</span>
+          <select
+            value={historyPeriod}
+            onChange={(e) => onHistoryPeriodChange(e.target.value as BusinessHistoryPeriod)}
+            className="text-xs font-semibold border border-slate-200 rounded-lg px-2 py-1 bg-white"
+          >
+            {HISTORY_PERIOD_OPTIONS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+          </select>
+        </div>
+        {selectedPeriod.billCount === 0 ? (
+          <p className="text-xs text-slate-400 font-medium">No sales in this period.</p>
+        ) : (
+          <div className="flex flex-wrap items-center gap-x-6 gap-y-2 text-xs">
+            <span className="font-mono font-bold text-[#0B0E23]">Sales {formatCurrency(selectedPeriod.totalSales)}</span>
+            {selectedPeriod.totalProfit !== null && <span className="font-mono font-bold text-emerald-600">🟢 Profit {formatCurrency(selectedPeriod.totalProfit)}</span>}
+            {selectedPeriod.totalLoss !== null && selectedPeriod.totalLoss > 0 && <span className="font-mono font-bold text-red-600">🔴 Loss {formatCurrency(selectedPeriod.totalLoss)}</span>}
+            <span className="font-mono font-bold text-slate-600">{selectedPeriod.billCount} bills</span>
+            <span className="font-mono font-bold text-slate-600">{selectedPeriod.itemsSold} items sold</span>
+            <span className="font-mono font-bold text-slate-600">Tax {formatCurrency(selectedPeriod.totalTax)}</span>
+            <span className="font-mono font-bold text-slate-600">Avg Bill {formatCurrency(selectedPeriod.avgBillValue)}</span>
+          </div>
+        )}
+      </div>
 
       {recentSales.length === 0 && hasToday === false && thisMonth.billCount === 0 && (
         <p className="text-xs text-slate-400 font-medium text-center py-2">No sales recorded yet.</p>
