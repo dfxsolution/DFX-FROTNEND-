@@ -10,11 +10,19 @@ export const CHARGE_TYPE_OPTIONS: { value: ChargeType; label: string }[] = [
   { value: 'FIXED', label: 'Fixed amount' },
 ];
 
-export type StockStatus = 'IN_STOCK' | 'SOLD' | 'INACTIVE';
+export type StockStatus = 'IN_STOCK' | 'SOLD' | 'INACTIVE' | 'RETURNED_PENDING_INSPECTION' | 'DAMAGED';
 export type PaymentMethod = 'CASH' | 'CARD' | 'UPI' | 'BANK_TRANSFER' | 'OTHER';
 export const PAYMENT_METHOD_OPTIONS: PaymentMethod[] = ['CASH', 'CARD', 'UPI', 'BANK_TRANSFER', 'OTHER'];
 export type PaymentStatus = 'PAID' | 'PENDING' | 'PARTIAL';
 export const PAYMENT_STATUS_OPTIONS: PaymentStatus[] = ['PAID', 'PENDING', 'PARTIAL'];
+/* Full stored vocabulary of a sale's payment status. The two refund states are
+ * reachable only through a return, never by creating a sale. */
+export type SalePaymentStatus = PaymentStatus | 'REFUNDED' | 'PARTIALLY_REFUNDED';
+/* The SALE lifecycle, independent of the money lifecycle. There is no
+ * PARTIALLY_RETURNED state: one sale carries one item in this data model. */
+export type SaleStatus = 'COMPLETED' | 'RETURNED' | 'CANCELLED';
+export type ReturnType = 'RETURN' | 'CANCELLATION';
+export type InspectionOutcome = 'RESALABLE' | 'DAMAGED';
 
 export type PricingMode = 'AUTO' | 'HYBRID' | 'MANUAL';
 export const PRICING_MODE_OPTIONS: { value: PricingMode; label: string }[] = [
@@ -474,9 +482,12 @@ interface BackendSale extends BackendPriceBreakdown {
   huid: string | null;
   gross_weight_grams: number;
   payment_method: PaymentMethod;
-  payment_status: PaymentStatus;
+  payment_status: SalePaymentStatus;
   amount_paid: number;
   amount_outstanding: number;
+  sale_status?: SaleStatus;
+  amount_refunded?: number;
+  sale_return?: BackendSaleReturn | null;
   pricing_mode: PricingMode | null;
   purchase_cost_snapshot: number | null;
   estimated_gross_margin: number | null;
@@ -499,9 +510,13 @@ export interface Sale extends PriceBreakdown {
   grossWeightGrams: number;
   paymentMethod: PaymentMethod;
   /* Derived by the backend from the payment ledger — never set by this client. */
-  paymentStatus: PaymentStatus;
+  paymentStatus: SalePaymentStatus;
   amountPaid: number;
   amountOutstanding: number;
+  saleStatus: SaleStatus;
+  amountRefunded: number;
+  /** Populated on the single-invoice read only; null on an intact sale. */
+  saleReturn: SaleReturn | null;
   pricingMode: PricingMode | null;
   purchaseCostSnapshot: number | null;
   estimatedGrossMargin: number | null;
@@ -528,12 +543,171 @@ function mapSale(raw: BackendSale): Sale {
     paymentStatus: raw.payment_status,
     amountPaid: raw.amount_paid ?? 0,
     amountOutstanding: raw.amount_outstanding ?? 0,
+    saleStatus: raw.sale_status ?? 'COMPLETED',
+    amountRefunded: raw.amount_refunded ?? 0,
+    saleReturn: raw.sale_return ? mapSaleReturn(raw.sale_return) : null,
     pricingMode: raw.pricing_mode,
     purchaseCostSnapshot: raw.purchase_cost_snapshot,
     estimatedGrossMargin: raw.estimated_gross_margin,
     saleTimestamp: raw.sale_timestamp,
     createdBy: raw.created_by,
     createdAt: raw.created_at,
+  };
+}
+
+/* ------------------------------------------------------------------ */
+/* Sale return / cancellation — the reversal record for one invoice.    */
+/* The original sale is never edited, and every figure below comes from  */
+/* the backend, the sole authority on what may be refunded.             */
+/* ------------------------------------------------------------------ */
+
+const BILLING_SALES = '/billing/sales';
+
+interface BackendSaleReturn {
+  id: string;
+  sale_id: string;
+  invoice_number: string;
+  inventory_item_id: string;
+  product_code: string;
+  return_type: ReturnType;
+  reason: string;
+  original_sale_amount: number;
+  amount_collected_at_return: number;
+  refund_amount: number;
+  outstanding_written_off: number;
+  refund_method: PaymentMethod | null;
+  refund_reference_no: string | null;
+  inspection_status: 'PENDING' | 'RESALABLE' | 'DAMAGED';
+  inspection_notes: string | null;
+  inspected_at: string | null;
+  inspected_by: string | null;
+  inspected_by_name: string | null;
+  returned_at: string;
+  processed_by: string;
+  processed_by_name: string | null;
+  current_stock_status: StockStatus | null;
+  created_at: string;
+}
+
+export interface SaleReturn {
+  id: string;
+  saleId: string;
+  invoiceNumber: string;
+  inventoryItemId: string;
+  productCode: string;
+  returnType: ReturnType;
+  reason: string;
+  originalSaleAmount: number;
+  amountCollectedAtReturn: number;
+  refundAmount: number;
+  outstandingWrittenOff: number;
+  refundMethod: PaymentMethod | null;
+  refundReferenceNo: string | null;
+  inspectionStatus: 'PENDING' | 'RESALABLE' | 'DAMAGED';
+  inspectionNotes: string | null;
+  inspectedAt: string | null;
+  inspectedBy: string | null;
+  inspectedByName: string | null;
+  returnedAt: string;
+  processedBy: string;
+  processedByName: string | null;
+  currentStockStatus: StockStatus | null;
+  createdAt: string;
+}
+
+interface BackendSaleReturnPreview {
+  sale_id: string;
+  invoice_number: string;
+  product_code: string;
+  product_name: string;
+  sale_status: SaleStatus;
+  payment_status: SalePaymentStatus;
+  original_sale_amount: number;
+  amount_collected: number;
+  outstanding: number;
+  max_refundable: number;
+  outstanding_to_write_off: number;
+  current_stock_status: string;
+  resulting_stock_status: string;
+  can_return: boolean;
+  blocked_reason: string | null;
+}
+
+export interface SaleReturnPreview {
+  saleId: string;
+  invoiceNumber: string;
+  productCode: string;
+  productName: string;
+  saleStatus: SaleStatus;
+  paymentStatus: SalePaymentStatus;
+  originalSaleAmount: number;
+  amountCollected: number;
+  outstanding: number;
+  /** Never more than what was actually collected — the unpaid balance is
+   *  written off by the return, not refunded. */
+  maxRefundable: number;
+  outstandingToWriteOff: number;
+  currentStockStatus: string;
+  resultingStockStatus: string;
+  canReturn: boolean;
+  blockedReason: string | null;
+}
+
+export interface ProcessReturnData {
+  returnType: ReturnType;
+  reason: string;
+  /** Omit to refund the full collected amount. */
+  refundAmount?: number;
+  refundMethod?: PaymentMethod;
+  refundReferenceNo?: string;
+  refundDate?: string;
+}
+
+function mapSaleReturn(raw: BackendSaleReturn): SaleReturn {
+  return {
+    id: raw.id,
+    saleId: raw.sale_id,
+    invoiceNumber: raw.invoice_number,
+    inventoryItemId: raw.inventory_item_id,
+    productCode: raw.product_code,
+    returnType: raw.return_type,
+    reason: raw.reason,
+    originalSaleAmount: raw.original_sale_amount,
+    amountCollectedAtReturn: raw.amount_collected_at_return,
+    refundAmount: raw.refund_amount,
+    outstandingWrittenOff: raw.outstanding_written_off,
+    refundMethod: raw.refund_method,
+    refundReferenceNo: raw.refund_reference_no,
+    inspectionStatus: raw.inspection_status,
+    inspectionNotes: raw.inspection_notes,
+    inspectedAt: raw.inspected_at,
+    inspectedBy: raw.inspected_by,
+    inspectedByName: raw.inspected_by_name,
+    returnedAt: raw.returned_at,
+    processedBy: raw.processed_by,
+    processedByName: raw.processed_by_name,
+    currentStockStatus: raw.current_stock_status,
+    createdAt: raw.created_at,
+  };
+}
+
+function mapReturnPreview(raw: BackendSaleReturnPreview): SaleReturnPreview {
+  return {
+    saleId: raw.sale_id,
+    invoiceNumber: raw.invoice_number,
+    productCode: raw.product_code,
+    productName: raw.product_name,
+    saleStatus: raw.sale_status,
+    paymentStatus: raw.payment_status,
+    originalSaleAmount: raw.original_sale_amount,
+    amountCollected: raw.amount_collected,
+    outstanding: raw.outstanding,
+    maxRefundable: raw.max_refundable,
+    outstandingToWriteOff: raw.outstanding_to_write_off,
+    currentStockStatus: raw.current_stock_status,
+    resultingStockStatus: raw.resulting_stock_status,
+    canReturn: raw.can_return,
+    blockedReason: raw.blocked_reason,
   };
 }
 
@@ -597,7 +771,7 @@ export interface SalePaymentHistory {
   finalAmount: number;
   amountPaid: number;
   amountOutstanding: number;
-  paymentStatus: PaymentStatus;
+  paymentStatus: SalePaymentStatus;
   payments: SalePayment[];
 }
 
@@ -1020,7 +1194,8 @@ export const billingService = {
     dateFrom?: string;
     dateTo?: string;
     search?: string;
-    paymentStatus?: PaymentStatus;
+    paymentStatus?: SalePaymentStatus;
+    saleStatus?: SaleStatus;
   }): Promise<void> {
     const query = new URLSearchParams();
     if (params.dateFrom && params.dateTo) {
@@ -1031,7 +1206,58 @@ export const billingService = {
     }
     if (params.search) query.set('search', params.search);
     if (params.paymentStatus) query.set('payment_status', params.paymentStatus);
+    if (params.saleStatus) query.set('sale_status', params.saleStatus);
     await downloadBlob(`/billing/sales/export.xlsx?${query.toString()}`, 'sales-history.xlsx');
+  },
+
+  /* Sale return / cancellation. The backend is the only authority on what may
+   * be refunded and on the resulting statuses; this client never computes a
+   * refund figure of its own. */
+  async previewSaleReturn(saleId: string): Promise<SaleReturnPreview> {
+    const res = await apiClient.get<{ preview: BackendSaleReturnPreview }>(
+      BILLING_SALES + '/' + saleId + '/return/preview',
+      { auth: true }
+    );
+    return mapReturnPreview(res.data.preview);
+  },
+
+  async getSaleReturn(saleId: string): Promise<SaleReturn | null> {
+    const res = await apiClient.get<{ saleReturn: BackendSaleReturn | null }>(
+      BILLING_SALES + '/' + saleId + '/return',
+      { auth: true }
+    );
+    return res.data.saleReturn ? mapSaleReturn(res.data.saleReturn) : null;
+  },
+
+  async processSaleReturn(saleId: string, data: ProcessReturnData): Promise<SaleReturn> {
+    const res = await apiClient.post<{ saleReturn: BackendSaleReturn }>(
+      BILLING_SALES + '/' + saleId + '/return',
+      {
+        return_type: data.returnType,
+        reason: data.reason,
+        refund_amount: data.refundAmount ?? null,
+        refund_method: data.refundMethod ?? null,
+        refund_reference_no: data.refundReferenceNo || null,
+        refund_date: data.refundDate ?? null,
+      },
+      { auth: true }
+    );
+    return mapSaleReturn(res.data.saleReturn);
+  },
+
+  /** The explicit second step: a returned item only becomes sellable when an
+   *  Admin records RESALABLE. DAMAGED keeps it out of sellable stock. */
+  async recordReturnInspection(
+    saleId: string,
+    outcome: InspectionOutcome,
+    notes?: string
+  ): Promise<SaleReturn> {
+    const res = await apiClient.post<{ saleReturn: BackendSaleReturn }>(
+      BILLING_SALES + '/' + saleId + '/return/inspection',
+      { outcome, notes: notes || null },
+      { auth: true }
+    );
+    return mapSaleReturn(res.data.saleReturn);
   },
 
   /* Payment ledger */
@@ -1181,7 +1407,8 @@ export const billingService = {
     search?: string;
     dateFrom?: string;
     dateTo?: string;
-    paymentStatus?: PaymentStatus;
+    paymentStatus?: SalePaymentStatus;
+    saleStatus?: SaleStatus;
   } = {}): Promise<{ sales: Sale[]; total: number }> {
     const query = new URLSearchParams();
     query.set('page', String(params.page ?? 1));
@@ -1190,6 +1417,7 @@ export const billingService = {
     if (params.dateFrom) query.set('date_from', params.dateFrom);
     if (params.dateTo) query.set('date_to', params.dateTo);
     if (params.paymentStatus) query.set('payment_status', params.paymentStatus);
+    if (params.saleStatus) query.set('sale_status', params.saleStatus);
 
     const res = await apiClient.get<{ sales: BackendSale[]; total: number }>(
       `/billing/sales?${query.toString()}`,

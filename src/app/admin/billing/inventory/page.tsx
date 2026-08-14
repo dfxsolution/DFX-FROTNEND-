@@ -34,6 +34,9 @@ const STOCK_BADGE: Record<StockStatus, BadgeProps['variant']> = {
   IN_STOCK: 'success',
   SOLD: 'neutral',
   INACTIVE: 'inactive',
+  // Post-return states — both are non-sellable stock.
+  RETURNED_PENDING_INSPECTION: 'warn',
+  DAMAGED: 'danger',
 };
 
 const emptyForm: InventoryItemFormData = {

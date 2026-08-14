@@ -7,12 +7,13 @@ import { Input } from '@/components/ui/input';
 import { Skeleton } from '@/components/ui/skeleton';
 import { EmptyState } from '@/components/ui/empty-state';
 import { Dialog, DialogFooter } from '@/components/ui/dialog';
-import { Receipt, Search, FileX, Download, Wallet } from 'lucide-react';
+import { Receipt, Search, FileX, Download, Wallet, Undo2, PackageCheck } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Select } from '@/components/ui/form-controls';
 import {
   billingService, Sale, PaymentStatus, PaymentMethod, SalePaymentHistory,
   PAYMENT_METHOD_OPTIONS, SALES_HISTORY_PERIODS, SalesHistoryPeriod,
+  SalePaymentStatus, SaleStatus, SaleReturn, SaleReturnPreview, ReturnType,
 } from '@/services/billingService';
 import { ApiError } from '@/lib/apiClient';
 import { formatCurrency, formatWeight } from '@/lib/formatters';
@@ -20,15 +21,36 @@ import { PriceBreakdownCard } from '../_components/PriceBreakdownCard';
 import { InvoiceActions } from '../_components/InvoiceActions';
 import { useTenant } from '@/hooks/useTenant';
 
-/* One screen, four filters — never four duplicate pages. ALL means "no
- * payment_status filter sent"; the other three map straight onto the
- * ledger-derived status the backend stores. */
-const STATUS_TABS: { value: 'ALL' | PaymentStatus; label: string }[] = [
-  { value: 'ALL', label: 'All' },
-  { value: 'PAID', label: 'Paid' },
-  { value: 'PARTIAL', label: 'Partial' },
-  { value: 'PENDING', label: 'Pending' },
+/* One screen, one set of filters — never duplicate pages. ALL sends no filter
+ * at all; a payment tab filters on the ledger-derived payment status, a sale
+ * tab filters on the sale lifecycle. The two are separate backend columns, so
+ * a tab declares which one it targets rather than overloading a single field. */
+type TabKey = 'ALL' | 'PAID' | 'PARTIAL' | 'PENDING' | 'RETURNED' | 'CANCELLED';
+
+const STATUS_TABS: { value: TabKey; label: string; kind: 'all' | 'payment' | 'sale' }[] = [
+  { value: 'ALL', label: 'All', kind: 'all' },
+  { value: 'PAID', label: 'Paid', kind: 'payment' },
+  { value: 'PARTIAL', label: 'Partial', kind: 'payment' },
+  { value: 'PENDING', label: 'Pending', kind: 'payment' },
+  { value: 'RETURNED', label: 'Returned', kind: 'sale' },
+  { value: 'CANCELLED', label: 'Cancelled', kind: 'sale' },
 ];
+
+function tabFilters(tab: TabKey): { paymentStatus?: SalePaymentStatus; saleStatus?: SaleStatus } {
+  const entry = STATUS_TABS.find((t) => t.value === tab);
+  if (!entry || entry.kind === 'all') return {};
+  if (entry.kind === 'sale') return { saleStatus: tab as SaleStatus };
+  return { paymentStatus: tab as SalePaymentStatus };
+}
+
+/* Payment status carries five values once returns exist; map each to a badge
+ * tone in one place. */
+function paymentTone(status: SalePaymentStatus): 'success' | 'warn' | 'pending' | 'danger' {
+  if (status === 'PAID') return 'success';
+  if (status === 'PARTIAL' || status === 'PARTIALLY_REFUNDED') return 'warn';
+  if (status === 'REFUNDED') return 'danger';
+  return 'pending';
+}
 
 function todayIso(): string {
   return new Date().toISOString().slice(0, 10);
@@ -42,7 +64,7 @@ export default function SalesHistoryPage() {
   const [search, setSearch] = useState('');
   const [dateFrom, setDateFrom] = useState('');
   const [dateTo, setDateTo] = useState('');
-  const [statusTab, setStatusTab] = useState<'ALL' | PaymentStatus>('ALL');
+  const [statusTab, setStatusTab] = useState<TabKey>('ALL');
   const [period, setPeriod] = useState<SalesHistoryPeriod>('this_month');
   const [exporting, setExporting] = useState(false);
 
@@ -56,9 +78,22 @@ export default function SalesHistoryPage() {
   const [payReference, setPayReference] = useState('');
   const [payError, setPayError] = useState('');
   const [paySaving, setPaySaving] = useState(false);
+
+  /* Return / cancellation. The preview is fetched from the backend so the
+   * confirmation shows real figures, never anything computed in the browser. */
+  const [returnOpen, setReturnOpen] = useState(false);
+  const [returnPreview, setReturnPreview] = useState<SaleReturnPreview | null>(null);
+  const [returnRecord, setReturnRecord] = useState<SaleReturn | null>(null);
+  const [returnType, setReturnType] = useState<ReturnType>('RETURN');
+  const [returnReason, setReturnReason] = useState('');
+  const [refundAmount, setRefundAmount] = useState('');
+  const [refundMethod, setRefundMethod] = useState<PaymentMethod>('CASH');
+  const [refundReference, setRefundReference] = useState('');
+  const [returnError, setReturnError] = useState('');
+  const [returnSaving, setReturnSaving] = useState(false);
   const { branding } = useTenant();
 
-  const loadSales = async (statusOverride?: 'ALL' | PaymentStatus) => {
+  const loadSales = async (statusOverride?: TabKey) => {
     const status = statusOverride ?? statusTab;
     setLoading(true);
     setLoadError('');
@@ -67,7 +102,7 @@ export default function SalesHistoryPage() {
         search: search || undefined,
         dateFrom: dateFrom || undefined,
         dateTo: dateTo || undefined,
-        paymentStatus: status === 'ALL' ? undefined : status,
+        ...tabFilters(status),
         limit: 100,
       });
       setSales(res.sales);
@@ -84,7 +119,7 @@ export default function SalesHistoryPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const selectTab = (value: 'ALL' | PaymentStatus) => {
+  const selectTab = (value: TabKey) => {
     setStatusTab(value);
     loadSales(value);
   };
@@ -97,7 +132,7 @@ export default function SalesHistoryPage() {
         dateFrom: dateFrom || undefined,
         dateTo: dateTo || undefined,
         search: search || undefined,
-        paymentStatus: statusTab === 'ALL' ? undefined : statusTab,
+        ...tabFilters(statusTab),
       });
     } catch (err) {
       setLoadError(err instanceof ApiError ? err.message : 'Could not export sales history.');
@@ -117,9 +152,15 @@ export default function SalesHistoryPage() {
     setPayMethod(sale.paymentMethod);
     setPayReference('');
     setPayError('');
+    setReturnRecord(null);
+    setReturnError('');
     setHistoryLoading(true);
     try {
       setHistory(await billingService.getPaymentHistory(sale.id));
+      /* A reversed sale carries a return record; an intact one does not. */
+      if (sale.saleStatus !== 'COMPLETED') {
+        setReturnRecord(await billingService.getSaleReturn(sale.id));
+      }
     } catch (err) {
       setPayError(err instanceof ApiError ? err.message : 'Could not load the payment history.');
     } finally {
@@ -130,6 +171,93 @@ export default function SalesHistoryPage() {
   const closeSale = () => {
     setSelected(null);
     setHistory(null);
+    setReturnRecord(null);
+  };
+
+  /* Return / cancellation ------------------------------------------------
+   * The dialog never decides what may be refunded: it asks the backend for the
+   * impact, shows it, and sends back only the Admin's reason and refund
+   * choice. The backend re-validates everything against the ledger. */
+  const openReturn = async () => {
+    if (!selected) return;
+    setReturnOpen(true);
+    setReturnPreview(null);
+    setReturnRecord(null);
+    setReturnType('RETURN');
+    setReturnReason('');
+    setRefundAmount('');
+    setRefundReference('');
+    setReturnError('');
+    try {
+      const preview = await billingService.previewSaleReturn(selected.id);
+      setReturnPreview(preview);
+      setRefundMethod(selected.paymentMethod);
+      /* Default to refunding exactly what was collected — the outstanding
+       * balance is written off, never refunded. */
+      setRefundAmount(String(preview.maxRefundable));
+    } catch (err) {
+      setReturnError(err instanceof ApiError ? err.message : 'Could not load the return preview.');
+    }
+  };
+
+  const closeReturn = () => {
+    setReturnOpen(false);
+    setReturnPreview(null);
+    setReturnError('');
+  };
+
+  const handleProcessReturn = async () => {
+    if (!selected || !returnPreview) return;
+    if (returnReason.trim().length < 3) {
+      setReturnError('A return reason is required.');
+      return;
+    }
+    const refund = refundAmount.trim() === '' ? undefined : parseFloat(refundAmount);
+    if (refund !== undefined && (isNaN(refund) || refund < 0)) {
+      setReturnError('Enter a valid refund amount.');
+      return;
+    }
+    setReturnError('');
+    setReturnSaving(true);
+    try {
+      const record = await billingService.processSaleReturn(selected.id, {
+        returnType,
+        reason: returnReason.trim(),
+        refundAmount: refund,
+        refundMethod: refund && refund > 0 ? refundMethod : undefined,
+        refundReferenceNo: refundReference.trim() || undefined,
+      });
+      setReturnRecord(record);
+      setReturnOpen(false);
+      /* Re-read both the invoice and the list from the backend rather than
+       * patching statuses locally — the backend owns every derived figure. */
+      const [refreshed, ledger] = await Promise.all([
+        billingService.getSale(selected.id),
+        billingService.getPaymentHistory(selected.id),
+      ]);
+      setSelected(refreshed);
+      setHistory(ledger);
+      setSales((prev) => prev.map((s) => (s.id === refreshed.id ? refreshed : s)));
+    } catch (err) {
+      setReturnError(err instanceof ApiError ? err.message : 'Could not process the return.');
+    } finally {
+      setReturnSaving(false);
+    }
+  };
+
+  /* The explicit second step: a returned item is not sellable until an Admin
+   * decides its condition. */
+  const handleInspection = async (outcome: 'RESALABLE' | 'DAMAGED') => {
+    if (!selected) return;
+    setReturnSaving(true);
+    setReturnError('');
+    try {
+      setReturnRecord(await billingService.recordReturnInspection(selected.id, outcome));
+    } catch (err) {
+      setReturnError(err instanceof ApiError ? err.message : 'Could not record the inspection.');
+    } finally {
+      setReturnSaving(false);
+    }
   };
 
   const handleRecordPayment = async () => {
@@ -243,7 +371,7 @@ export default function SalesHistoryPage() {
       {!loading && loadError && (
         <Card className="p-4 border-red-200 bg-red-50/60">
           <p className="text-xs font-medium text-red-700">{loadError}</p>
-          <Button size="sm" variant="outline" className="mt-3" onClick={loadSales}>Retry</Button>
+          <Button size="sm" variant="outline" className="mt-3" onClick={() => loadSales()}>Retry</Button>
         </Card>
       )}
 
@@ -296,9 +424,12 @@ export default function SalesHistoryPage() {
                       ) : '—'}
                     </td>
                     <td className="px-4 py-3">
-                      <Badge variant={sale.paymentStatus === 'PAID' ? 'success' : sale.paymentStatus === 'PARTIAL' ? 'warn' : 'pending'}>
-                        {sale.paymentStatus}
-                      </Badge>
+                      <div className="flex flex-col items-start gap-1">
+                        <Badge variant={paymentTone(sale.paymentStatus)}>{sale.paymentStatus}</Badge>
+                        {sale.saleStatus !== 'COMPLETED' && (
+                          <Badge variant="danger">{sale.saleStatus}</Badge>
+                        )}
+                      </div>
                     </td>
                     <td className="px-4 py-3 text-right">
                       <Button size="sm" variant="outline" onClick={() => openSale(sale)}>View</Button>
@@ -365,9 +496,7 @@ export default function SalesHistoryPage() {
                     </div>
                     <div>
                       <p className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">Status</p>
-                      <Badge variant={history.paymentStatus === 'PAID' ? 'success' : history.paymentStatus === 'PARTIAL' ? 'warn' : 'pending'}>
-                        {history.paymentStatus}
-                      </Badge>
+                      <Badge variant={paymentTone(history.paymentStatus)}>{history.paymentStatus}</Badge>
                     </div>
                   </div>
 
@@ -394,7 +523,7 @@ export default function SalesHistoryPage() {
                     </ul>
                   )}
 
-                  {history.amountOutstanding > 0 && (
+                  {history.amountOutstanding > 0 && selected.saleStatus === 'COMPLETED' && (
                     <div className="px-4 py-3 border-t border-slate-200 bg-slate-50/60 space-y-2">
                       <p className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">Add Payment</p>
                       <div className="grid grid-cols-2 gap-2">
@@ -428,11 +557,162 @@ export default function SalesHistoryPage() {
                 <p className="px-4 py-3 text-xs font-medium text-red-600">{payError}</p>
               )}
             </div>
+
+            {/* Reversal record. The original invoice above is untouched — this
+              * is a separate, permanent transaction linked to it. */}
+            {selected.saleStatus !== 'COMPLETED' && returnRecord && (
+              <div className="rounded-xl border border-red-200 overflow-hidden">
+                <div className="flex items-center gap-2 px-4 py-2.5 bg-red-50 border-b border-red-200">
+                  <Undo2 className="h-4 w-4 text-red-600" />
+                  <p className="text-[11px] font-bold uppercase tracking-wider text-red-700">
+                    {returnRecord.returnType === 'CANCELLATION' ? 'Sale Cancelled' : 'Sale Returned'}
+                  </p>
+                </div>
+                <div className="px-4 py-3 space-y-2">
+                  <div className="grid grid-cols-3 gap-2 text-center">
+                    <div>
+                      <p className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">Refunded</p>
+                      <p className="text-sm font-bold font-mono text-red-700">{formatCurrency(returnRecord.refundAmount)}</p>
+                    </div>
+                    <div>
+                      <p className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">Written Off</p>
+                      <p className="text-sm font-bold font-mono text-slate-700">{formatCurrency(returnRecord.outstandingWrittenOff)}</p>
+                    </div>
+                    <div>
+                      <p className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">Item</p>
+                      <p className="text-[11px] font-bold text-slate-700">{returnRecord.currentStockStatus?.replace(/_/g, ' ') || '—'}</p>
+                    </div>
+                  </div>
+                  <p className="text-[11px] text-slate-600 font-medium">
+                    {new Date(returnRecord.returnedAt).toLocaleString('en-IN', { dateStyle: 'medium', timeStyle: 'short' })}
+                    {returnRecord.processedByName && ' · ' + returnRecord.processedByName}
+                  </p>
+                  <p className="text-[11px] text-slate-600 font-medium">Reason: {returnRecord.reason}</p>
+
+                  {returnRecord.inspectionStatus === 'PENDING' ? (
+                    <div className="pt-2 border-t border-slate-100 space-y-2">
+                      <p className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">
+                        Inspection — the item is not sellable until this is recorded
+                      </p>
+                      <div className="grid grid-cols-2 gap-2">
+                        <Button size="sm" isLoading={returnSaving} onClick={() => handleInspection('RESALABLE')}>
+                          <PackageCheck className="h-3.5 w-3.5 mr-1" /> Back To Inventory
+                        </Button>
+                        <Button size="sm" variant="outline" isLoading={returnSaving} onClick={() => handleInspection('DAMAGED')}>
+                          Mark Damaged
+                        </Button>
+                      </div>
+                    </div>
+                  ) : (
+                    <p className="text-[11px] font-medium text-slate-600 pt-2 border-t border-slate-100">
+                      Inspected: {returnRecord.inspectionStatus}
+                      {returnRecord.inspectedByName && ' · ' + returnRecord.inspectedByName}
+                    </p>
+                  )}
+                  {returnError && <p className="text-[11px] font-medium text-red-600">{returnError}</p>}
+                </div>
+              </div>
+            )}
           </div>
         )}
         <DialogFooter>
+          {selected && selected.saleStatus === 'COMPLETED' && (
+            <Button variant="outline" onClick={openReturn}>
+              <Undo2 className="h-3.5 w-3.5 mr-1" /> Return / Cancel
+            </Button>
+          )}
           {selected && <InvoiceActions sale={selected} businessName={branding.brandName} />}
           <Button variant="outline" onClick={closeSale}>Close</Button>
+        </DialogFooter>
+      </Dialog>
+
+      {/* Return / cancel confirmation. Nothing here is silent: the Admin sees
+        * the backend's own impact figures and must give a reason. */}
+      <Dialog
+        isOpen={returnOpen}
+        onClose={closeReturn}
+        title={selected ? 'Return / Cancel ' + selected.invoiceNumber : undefined}
+        maxWidth="max-w-md"
+      >
+        {!returnPreview && !returnError && (
+          <p className="text-xs text-slate-500 font-medium">Loading financial impact…</p>
+        )}
+        {returnPreview && (
+          <div className="space-y-3">
+            <div className="rounded-xl border border-slate-200 divide-y divide-slate-100">
+              <div className="flex items-center justify-between px-3 py-2">
+                <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">Invoice Total</span>
+                <span className="text-xs font-bold font-mono text-[#0B0E23]">{formatCurrency(returnPreview.originalSaleAmount)}</span>
+              </div>
+              <div className="flex items-center justify-between px-3 py-2">
+                <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">Collected</span>
+                <span className="text-xs font-bold font-mono text-emerald-700">{formatCurrency(returnPreview.amountCollected)}</span>
+              </div>
+              <div className="flex items-center justify-between px-3 py-2">
+                <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">Refundable</span>
+                <span className="text-xs font-bold font-mono text-red-700">{formatCurrency(returnPreview.maxRefundable)}</span>
+              </div>
+              <div className="flex items-center justify-between px-3 py-2">
+                <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">Written Off</span>
+                <span className="text-xs font-bold font-mono text-slate-700">{formatCurrency(returnPreview.outstandingToWriteOff)}</span>
+              </div>
+              <div className="flex items-center justify-between px-3 py-2">
+                <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">Item Becomes</span>
+                <span className="text-[11px] font-bold text-slate-700">{returnPreview.resultingStockStatus.replace(/_/g, ' ')}</span>
+              </div>
+            </div>
+
+            {!returnPreview.canReturn ? (
+              <p className="text-[11px] font-medium text-red-600">{returnPreview.blockedReason}</p>
+            ) : (
+              <>
+                <Select value={returnType} onChange={(e) => setReturnType(e.target.value as ReturnType)}>
+                  <option value="RETURN">Return (customer brought the item back)</option>
+                  <option value="CANCELLATION">Cancellation (sale reversed before delivery)</option>
+                </Select>
+                <Input
+                  value={returnReason}
+                  onChange={(e) => setReturnReason(e.target.value)}
+                  placeholder="Reason (required)"
+                />
+                <div className="grid grid-cols-2 gap-2">
+                  <Input
+                    type="number"
+                    step="0.01"
+                    value={refundAmount}
+                    onChange={(e) => setRefundAmount(e.target.value)}
+                    placeholder={'Max ' + returnPreview.maxRefundable}
+                  />
+                  <Select value={refundMethod} onChange={(e) => setRefundMethod(e.target.value as PaymentMethod)}>
+                    {PAYMENT_METHOD_OPTIONS.map((m) => <option key={m} value={m}>{m.replace('_', ' ')}</option>)}
+                  </Select>
+                </div>
+                <Input
+                  value={refundReference}
+                  onChange={(e) => setRefundReference(e.target.value)}
+                  placeholder="Refund reference (optional)"
+                />
+                <p className="text-[11px] text-slate-500 font-medium">
+                  The original invoice and every earlier payment stay on record. The refund is added
+                  to the payment ledger as a separate event.
+                </p>
+              </>
+            )}
+            {returnError && <p className="text-[11px] font-medium text-red-600">{returnError}</p>}
+          </div>
+        )}
+        {returnError && !returnPreview && (
+          <p className="text-[11px] font-medium text-red-600">{returnError}</p>
+        )}
+        <DialogFooter>
+          <Button variant="outline" onClick={closeReturn}>Cancel</Button>
+          <Button
+            isLoading={returnSaving}
+            disabled={!returnPreview?.canReturn}
+            onClick={handleProcessReturn}
+          >
+            Confirm Return
+          </Button>
         </DialogFooter>
       </Dialog>
     </div>
