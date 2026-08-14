@@ -27,7 +27,15 @@ interface BackendCustomerEnrollment {
   maturity_date: string;
 }
 
-export type EnrollmentStatus = 'ACTIVE' | 'COMPLETED' | 'CANCELLED';
+/* COMPLETED keeps its existing maturity meaning. CLOSED means the customer
+ * stopped contributing but the balance already paid in is still redeemable;
+ * REDEEMED means that balance has been fully consumed by purchases. */
+export type EnrollmentStatus =
+  | 'ACTIVE'
+  | 'COMPLETED'
+  | 'CANCELLED'
+  | 'CLOSED'
+  | 'REDEEMED';
 
 export interface AdminEnrollment {
   id: string;
@@ -99,4 +107,152 @@ export const enrollmentService = {
     const res = await apiClient.get<{ enrollments: BackendCustomerEnrollment[] }>('/customer/enrollments', { auth: true });
     return res.data.enrollments.map(mapCustomerEnrollment);
   },
+
+  /* Scheme credit. Every figure comes from the backend, which derives it from
+   * the contribution and redemption ledgers — this client never computes a
+   * balance of its own. */
+  async getEnrollmentBalance(enrollmentId: string): Promise<EnrollmentBalance> {
+    const res = await apiClient.get<{ balance: BackendEnrollmentBalance }>(
+      `/enrollments/${enrollmentId}/balance`,
+      { auth: true }
+    );
+    return mapBalance(res.data.balance);
+  },
+
+  /** Stops future contributions. Never refunds or forfeits the balance. */
+  async closeEnrollment(enrollmentId: string, reason: string): Promise<EnrollmentBalance> {
+    const res = await apiClient.post<{ balance: BackendEnrollmentBalance }>(
+      `/enrollments/${enrollmentId}/close`,
+      { reason },
+      { auth: true }
+    );
+    return mapBalance(res.data.balance);
+  },
+
+  /** Applies scheme credit to an existing invoice. The backend validates the
+   *  amount against both the available balance and the invoice's outstanding. */
+  async redeemScheme(
+    enrollmentId: string,
+    saleId: string,
+    amount: number
+  ): Promise<EnrollmentBalance> {
+    const res = await apiClient.post<{ balance: BackendEnrollmentBalance }>(
+      `/enrollments/${enrollmentId}/redeem`,
+      { sale_id: saleId, amount },
+      { auth: true }
+    );
+    return mapBalance(res.data.balance);
+  },
 };
+
+/* ------------------------------------------------------------------ */
+/* Scheme balance, closure and redemption                              */
+/* ------------------------------------------------------------------ */
+
+interface BackendSchemeRedemption {
+  id: string;
+  enrollment_id: string;
+  customer_id: string;
+  sale_id: string;
+  invoice_number: string;
+  amount: number;
+  redeemed_at: string;
+  recorded_by: string;
+  recorded_by_name: string | null;
+}
+
+interface BackendEnrollmentBalance {
+  enrollment_id: string;
+  enrollment_number: string;
+  customer_id: string;
+  customer_name: string;
+  scheme_name: string;
+  monthly_amount: number;
+  duration_months: number;
+  successful_payment_count: number;
+  total_paid: number;
+  total_redeemed: number;
+  available_balance: number;
+  status: string;
+  joined_date: string;
+  maturity_date: string;
+  closed_at: string | null;
+  closed_by: string | null;
+  closed_by_name: string | null;
+  closure_reason: string | null;
+  can_contribute: boolean;
+  can_redeem: boolean;
+  redemptions: BackendSchemeRedemption[];
+}
+
+export interface SchemeRedemption {
+  id: string;
+  enrollmentId: string;
+  customerId: string;
+  saleId: string;
+  invoiceNumber: string;
+  amount: number;
+  redeemedAt: string;
+  recordedBy: string;
+  recordedByName: string | null;
+}
+
+export interface EnrollmentBalance {
+  enrollmentId: string;
+  enrollmentNumber: string;
+  customerId: string;
+  customerName: string;
+  schemeName: string;
+  monthlyAmount: number;
+  durationMonths: number;
+  successfulPaymentCount: number;
+  totalPaid: number;
+  totalRedeemed: number;
+  availableBalance: number;
+  status: EnrollmentStatus;
+  joinedDate: string;
+  maturityDate: string;
+  closedAt: string | null;
+  closedBy: string | null;
+  closedByName: string | null;
+  closureReason: string | null;
+  canContribute: boolean;
+  canRedeem: boolean;
+  redemptions: SchemeRedemption[];
+}
+
+function mapBalance(raw: BackendEnrollmentBalance): EnrollmentBalance {
+  return {
+    enrollmentId: raw.enrollment_id,
+    enrollmentNumber: raw.enrollment_number,
+    customerId: raw.customer_id,
+    customerName: raw.customer_name,
+    schemeName: raw.scheme_name,
+    monthlyAmount: raw.monthly_amount,
+    durationMonths: raw.duration_months,
+    successfulPaymentCount: raw.successful_payment_count,
+    totalPaid: raw.total_paid,
+    totalRedeemed: raw.total_redeemed,
+    availableBalance: raw.available_balance,
+    status: raw.status as EnrollmentStatus,
+    joinedDate: raw.joined_date,
+    maturityDate: raw.maturity_date,
+    closedAt: raw.closed_at,
+    closedBy: raw.closed_by,
+    closedByName: raw.closed_by_name,
+    closureReason: raw.closure_reason,
+    canContribute: raw.can_contribute,
+    canRedeem: raw.can_redeem,
+    redemptions: raw.redemptions.map((r) => ({
+      id: r.id,
+      enrollmentId: r.enrollment_id,
+      customerId: r.customer_id,
+      saleId: r.sale_id,
+      invoiceNumber: r.invoice_number,
+      amount: r.amount,
+      redeemedAt: r.redeemed_at,
+      recordedBy: r.recorded_by,
+      recordedByName: r.recorded_by_name,
+    })),
+  };
+}

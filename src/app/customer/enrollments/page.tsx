@@ -11,10 +11,14 @@ import { ArrowLeft, Gem, ChevronRight } from 'lucide-react';
 import { enrollmentService, CustomerEnrollment, EnrollmentStatus } from '@/services/enrollmentService';
 import { ApiError } from '@/lib/apiClient';
 
-const STATUS_VARIANT: Record<EnrollmentStatus, 'success' | 'gold' | 'danger'> = {
+const STATUS_VARIANT: Record<EnrollmentStatus, 'success' | 'gold' | 'danger' | 'warn' | 'neutral'> = {
   ACTIVE: 'success',
   COMPLETED: 'gold',
   CANCELLED: 'danger',
+  // Stopped contributing; the balance paid in is still redeemable in store.
+  CLOSED: 'warn',
+  // Balance fully used against purchases.
+  REDEEMED: 'neutral',
 };
 
 export default function MyEnrollmentsPage() {
