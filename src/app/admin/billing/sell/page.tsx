@@ -18,6 +18,8 @@ import { formatCurrency, formatWeight } from '@/lib/formatters';
 import { PriceBreakdownCard } from '../_components/PriceBreakdownCard';
 import { InvoiceActions } from '../_components/InvoiceActions';
 import { useTenant } from '@/hooks/useTenant';
+import { useAuth } from '@/hooks/useAuth';
+import { loadBillDraft, saveBillDraft, clearBillDraft, BillDraft } from '@/lib/billDraft';
 import { customerService, AdminCustomerListItem } from '@/services/customerService';
 
 type Stage = 'scan' | 'loading' | 'review' | 'success';
@@ -55,6 +57,24 @@ export default function NewSalePage() {
   const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' } | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const { branding } = useTenant();
+  const { user } = useAuth();
+
+  /* Recalculation sequencing. Every quote request gets a number; only the
+   * newest one is allowed to write state, and the previous in-flight request is
+   * aborted. Without this, a slow earlier response can land after a faster
+   * later one and silently overwrite the Admin's newer input with stale money. */
+  const recalcSeq = useRef(0);
+  const recalcAbort = useRef<AbortController | null>(null);
+  const recalcTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  /* Signature of the last successfully applied quote — an edit that ends up
+   * back at the same inputs (retype, blur after no change) costs no request. */
+  const lastQuoteKey = useRef('');
+
+  /* Draft restore. A draft is only offered, never silently applied on top of a
+   * bill in progress. */
+  const [pendingDraft, setPendingDraft] = useState<BillDraft | null>(null);
+  const [restoringDraft, setRestoringDraft] = useState(false);
+  const draftLoaded = useRef(false);
 
   // Tenant-scoped customer lookup — staff search by name/phone/email rather
   // than recalling an internal usr_ id. Debounced so typing doesn't spam the API.
@@ -94,6 +114,11 @@ export default function NewSalePage() {
     try {
       const q = await billingService.getSaleQuote(trimmed, 0, true);
       setQuote(q);
+      lastQuoteKey.current = [
+        q.inventoryItem.productCode, '', true,
+        String(q.breakdown.makingChargeValue), String(q.breakdown.wastageValue),
+        String(q.breakdown.goldProfitPercent),
+      ].join('|');
       setCustomerPrice(String(q.breakdown.finalAmount));
       setGstApplied(true);
       setMakingValue(String(q.breakdown.makingChargeValue));
@@ -106,39 +131,97 @@ export default function NewSalePage() {
     }
   };
 
-  /** Every change to the price or the GST switch is re-verified against the
+  /** Every change to the price or the charge fields is re-verified against the
    * backend's own deterministic calculation — the numbers shown are never
-   * computed purely client-side. */
+   * computed client-side, and there is no second calculation engine here. The
+   * request is debounced, sequenced and abortable; the arithmetic itself is
+   * still entirely BillingCalculationEngine's, and createSale recalculates
+   * server-side again before anything is saved. */
   const num = (v: string) => (v.trim() !== '' && !isNaN(parseFloat(v)) ? parseFloat(v) : undefined);
 
-  const recalculate = async (
+  const runRecalculate = async (
+    productCode: string,
     nextPrice: string,
     nextGst: boolean,
-    o: { making?: string; wastage?: string; goldProfit?: string } = {}
+    making: string,
+    wastage: string,
+    goldProfit: string
   ) => {
-    if (!quote) return;
     const parsed = parseFloat(nextPrice);
     const hasPrice = nextPrice.trim() !== '' && !isNaN(parsed);
+    const key = [productCode, hasPrice ? parsed : '', nextGst, making, wastage, goldProfit].join('|');
+    if (key === lastQuoteKey.current) {
+      setRecalculating(false);
+      return;
+    }
+
+    recalcAbort.current?.abort();
+    const controller = new AbortController();
+    recalcAbort.current = controller;
+    const seq = ++recalcSeq.current;
+
     setRecalculating(true);
     setPriceError('');
     try {
       const q = await billingService.getSaleQuote(
-        quote.inventoryItem.productCode, 0, nextGst, hasPrice ? parsed : undefined,
+        productCode, 0, nextGst, hasPrice ? parsed : undefined,
         {
-          makingChargeValue: num(o.making ?? makingValue),
-          wastageValue: num(o.wastage ?? wastageValue),
-          goldProfitPercent: num(o.goldProfit ?? goldProfitPct),
-        }
+          makingChargeValue: num(making),
+          wastageValue: num(wastage),
+          goldProfitPercent: num(goldProfit),
+        },
+        controller.signal
       );
+      /* A superseded response is dropped, never applied. */
+      if (seq !== recalcSeq.current) return;
+      lastQuoteKey.current = key;
       setQuote(q);
     } catch (err) {
+      if (err instanceof DOMException && err.name === 'AbortError') return;
+      if (seq !== recalcSeq.current) return;
       setPriceError(err instanceof ApiError ? err.message : 'Could not recalculate.');
     } finally {
-      setRecalculating(false);
+      if (seq === recalcSeq.current) setRecalculating(false);
     }
   };
 
+  /* Debounced entry point. Typing keeps the last good figures on screen and
+   * fires one request when the Admin pauses, instead of one per keystroke. */
+  const recalculate = (
+    nextPrice: string,
+    nextGst: boolean,
+    o: { making?: string; wastage?: string; goldProfit?: string } = {},
+    delayMs = 350
+  ) => {
+    if (!quote) return;
+    const productCode = quote.inventoryItem.productCode;
+    const making = o.making ?? makingValue;
+    const wastage = o.wastage ?? wastageValue;
+    const goldProfit = o.goldProfit ?? goldProfitPct;
+
+    if (recalcTimer.current) clearTimeout(recalcTimer.current);
+    if (delayMs <= 0) {
+      void runRecalculate(productCode, nextPrice, nextGst, making, wastage, goldProfit);
+      return;
+    }
+    recalcTimer.current = setTimeout(() => {
+      void runRecalculate(productCode, nextPrice, nextGst, making, wastage, goldProfit);
+    }, delayMs);
+  };
+
+  /* Drop any pending/in-flight recalculation when the screen goes away. */
+  useEffect(() => () => {
+    if (recalcTimer.current) clearTimeout(recalcTimer.current);
+    recalcAbort.current?.abort();
+  }, []);
+
   const resetToScan = () => {
+    if (recalcTimer.current) clearTimeout(recalcTimer.current);
+    recalcAbort.current?.abort();
+    recalcSeq.current += 1;
+    lastQuoteKey.current = '';
+    clearBillDraft(user?.tenantId, user?.id);
+    setPendingDraft(null);
     setStage('scan');
     setCode('');
     setQuote(null);
@@ -158,6 +241,94 @@ export default function NewSalePage() {
     setCompletedSale(null);
     setCompleteError('');
     setTimeout(() => inputRef.current?.focus(), 50);
+  };
+
+  /* Draft persistence -----------------------------------------------------
+   * Purely a local convenience: nothing below touches the backend, so an
+   * unfinished bill can never reach Sales History, mark inventory SOLD, create
+   * a payment row, or move a dashboard figure. Only Save Bill does that. */
+  useEffect(() => {
+    if (draftLoaded.current || !user?.tenantId || !user?.id) return;
+    draftLoaded.current = true;
+    const existing = loadBillDraft(user.tenantId, user.id);
+    if (existing) setPendingDraft(existing);
+  }, [user?.tenantId, user?.id]);
+
+  useEffect(() => {
+    if (stage !== 'review' || !quote) return;
+    saveBillDraft(user?.tenantId, user?.id, {
+      productCode: quote.inventoryItem.productCode,
+      customerPrice,
+      gstApplied,
+      makingValue,
+      wastageValue,
+      goldProfitPct,
+      customerName,
+      customerPhone,
+      customerId,
+      customerQuery,
+      paymentMethod,
+      paymentStatus,
+      initialPayment,
+    });
+  }, [
+    stage, quote, customerPrice, gstApplied, makingValue, wastageValue, goldProfitPct,
+    customerName, customerPhone, customerId, customerQuery, paymentMethod, paymentStatus,
+    initialPayment, user?.tenantId, user?.id,
+  ]);
+
+  /* Restoring re-reads the item from the backend, so a draft can never
+   * resurrect a stale price, a stale gold rate, or an item that has since been
+   * sold — only the Admin's own inputs come from the draft. */
+  const restoreDraft = async (draft: BillDraft) => {
+    setRestoringDraft(true);
+    setScanError('');
+    try {
+      const parsedPrice = parseFloat(draft.customerPrice);
+      const q = await billingService.getSaleQuote(
+        draft.productCode, 0, draft.gstApplied,
+        !isNaN(parsedPrice) ? parsedPrice : undefined,
+        {
+          makingChargeValue: num(draft.makingValue),
+          wastageValue: num(draft.wastageValue),
+          goldProfitPercent: num(draft.goldProfitPct),
+        }
+      );
+      setQuote(q);
+      lastQuoteKey.current = [
+        q.inventoryItem.productCode, !isNaN(parsedPrice) ? parsedPrice : '', draft.gstApplied,
+        draft.makingValue, draft.wastageValue, draft.goldProfitPct,
+      ].join('|');
+      setCustomerPrice(draft.customerPrice);
+      setGstApplied(draft.gstApplied);
+      setMakingValue(draft.makingValue);
+      setWastageValue(draft.wastageValue);
+      setGoldProfitPct(draft.goldProfitPct);
+      setCustomerName(draft.customerName);
+      setCustomerPhone(draft.customerPhone);
+      setCustomerId(draft.customerId);
+      setCustomerQuery(draft.customerQuery);
+      setPaymentMethod(draft.paymentMethod as PaymentMethod);
+      setPaymentStatus(draft.paymentStatus as PaymentStatus);
+      setInitialPayment(draft.initialPayment);
+      setPendingDraft(null);
+      setStage('review');
+    } catch (err) {
+      setScanError(
+        err instanceof ApiError
+          ? `Could not restore the saved bill: ${err.message}`
+          : 'Could not restore the saved bill.'
+      );
+      setPendingDraft(null);
+      clearBillDraft(user?.tenantId, user?.id);
+    } finally {
+      setRestoringDraft(false);
+    }
+  };
+
+  const discardDraft = () => {
+    clearBillDraft(user?.tenantId, user?.id);
+    setPendingDraft(null);
   };
 
   const customerIdentified = customerId.trim().length > 0 || customerName.trim().length > 0;
@@ -197,6 +368,9 @@ export default function NewSalePage() {
       });
       setCompletedSale(sale);
       setConfirmOpen(false);
+      /* Saved for real — the draft has served its purpose. A failed save falls
+       * through to the catch and deliberately keeps it. */
+      clearBillDraft(user?.tenantId, user?.id);
       setStage('success');
     } catch (err) {
       setCompleteError(err instanceof ApiError ? err.message : 'Could not complete the sale. Please try again.');
@@ -218,6 +392,28 @@ export default function NewSalePage() {
           </p>
         </div>
       </div>
+
+      {/* Unfinished bill from an earlier visit. Offered, never auto-applied —
+        * and it is only a set of inputs: no sale, no invoice, no ledger row,
+        * no inventory or dashboard effect until Save Bill. */}
+      {stage === 'scan' && pendingDraft && (
+        <Card className="p-4 border-gold/40 bg-gold/5 flex flex-wrap items-center justify-between gap-3">
+          <div>
+            <p className="text-xs font-bold text-[#0B0E23]">Unfinished bill for {pendingDraft.productCode}</p>
+            <p className="text-[11px] text-slate-600 font-medium mt-0.5">
+              Saved {new Date(pendingDraft.savedAt).toLocaleString('en-IN', { dateStyle: 'medium', timeStyle: 'short' })} · not yet billed
+            </p>
+          </div>
+          <div className="flex gap-2">
+            <Button size="sm" isLoading={restoringDraft} onClick={() => restoreDraft(pendingDraft)}>
+              Continue Bill
+            </Button>
+            <Button size="sm" variant="outline" onClick={discardDraft} disabled={restoringDraft}>
+              Discard
+            </Button>
+          </div>
+        </Card>
+      )}
 
       {(stage === 'scan' || stage === 'loading') && (
         <Card className="p-8 flex flex-col items-center text-center gap-4">
@@ -280,8 +476,8 @@ export default function NewSalePage() {
             todaysGoldValue={quote.breakdown.goldValueAmount}
             sellingPrice={quote.breakdown.subtotalBeforeTax + quote.breakdown.taxAmount}
             customerPrice={customerPrice}
-            onCustomerPriceChange={setCustomerPrice}
-            onCustomerPriceCommit={(v) => recalculate(v, gstApplied)}
+            onCustomerPriceChange={(v) => { setCustomerPrice(v); recalculate(v, gstApplied); }}
+            onCustomerPriceCommit={(v) => recalculate(v, gstApplied, {}, 0)}
             recalculating={recalculating}
             error={priceError}
             profitOrLoss={quote.profitOrLoss}
@@ -289,19 +485,19 @@ export default function NewSalePage() {
 
           <div className="rounded-2xl border border-slate-200 bg-white p-4 grid grid-cols-3 gap-3">
             <BillField label={`Making (${quote.breakdown.makingChargeType === 'PERCENTAGE' ? '%' : quote.breakdown.makingChargeType === 'PER_GRAM' ? '₹/g' : '₹'})`}>
-              <Input type="number" step="0.01" min="0" className="h-9 text-sm" value={makingValue} disabled={recalculating}
-                onChange={(e) => setMakingValue(e.target.value)}
-                onBlur={(e) => recalculate(customerPrice, gstApplied, { making: e.target.value })} />
+              <Input type="number" step="0.01" min="0" className="h-9 text-sm" value={makingValue}
+                onChange={(e) => { setMakingValue(e.target.value); recalculate(customerPrice, gstApplied, { making: e.target.value }); }}
+                onBlur={(e) => recalculate(customerPrice, gstApplied, { making: e.target.value }, 0)} />
             </BillField>
             <BillField label={`Wastage (${quote.breakdown.wastageType === 'PERCENTAGE' ? '%' : quote.breakdown.wastageType === 'PER_GRAM' ? '₹/g' : '₹'})`}>
-              <Input type="number" step="0.01" min="0" className="h-9 text-sm" value={wastageValue} disabled={recalculating}
-                onChange={(e) => setWastageValue(e.target.value)}
-                onBlur={(e) => recalculate(customerPrice, gstApplied, { wastage: e.target.value })} />
+              <Input type="number" step="0.01" min="0" className="h-9 text-sm" value={wastageValue}
+                onChange={(e) => { setWastageValue(e.target.value); recalculate(customerPrice, gstApplied, { wastage: e.target.value }); }}
+                onBlur={(e) => recalculate(customerPrice, gstApplied, { wastage: e.target.value }, 0)} />
             </BillField>
             <BillField label="Gold Profit %">
-              <Input type="number" step="0.01" min="0" max="100" className="h-9 text-sm" value={goldProfitPct} disabled={recalculating}
-                onChange={(e) => setGoldProfitPct(e.target.value)}
-                onBlur={(e) => recalculate(customerPrice, gstApplied, { goldProfit: e.target.value })} />
+              <Input type="number" step="0.01" min="0" max="100" className="h-9 text-sm" value={goldProfitPct}
+                onChange={(e) => { setGoldProfitPct(e.target.value); recalculate(customerPrice, gstApplied, { goldProfit: e.target.value }); }}
+                onBlur={(e) => recalculate(customerPrice, gstApplied, { goldProfit: e.target.value }, 0)} />
             </BillField>
           </div>
 
@@ -310,14 +506,14 @@ export default function NewSalePage() {
             <div className="flex rounded-xl border border-slate-200 overflow-hidden">
               <button
                 type="button"
-                onClick={() => { setGstApplied(true); recalculate(customerPrice, true); }}
+                onClick={() => { setGstApplied(true); recalculate(customerPrice, true, {}, 0); }}
                 className={`px-4 py-2 text-xs font-bold transition-colors ${gstApplied ? 'bg-gold text-white' : 'bg-white text-slate-500 hover:bg-slate-50'}`}
               >
                 With GST
               </button>
               <button
                 type="button"
-                onClick={() => { setGstApplied(false); recalculate(customerPrice, false); }}
+                onClick={() => { setGstApplied(false); recalculate(customerPrice, false, {}, 0); }}
                 className={`px-4 py-2 text-xs font-bold transition-colors border-l border-slate-200 ${!gstApplied ? 'bg-gold text-white' : 'bg-white text-slate-500 hover:bg-slate-50'}`}
               >
                 Without GST

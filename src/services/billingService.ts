@@ -1357,7 +1357,8 @@ export const billingService = {
     discountAmount = 0,
     gstApplied = true,
     customerPrice?: number,
-    overrides: { makingChargeValue?: number; wastageValue?: number; goldProfitPercent?: number } = {}
+    overrides: { makingChargeValue?: number; wastageValue?: number; goldProfitPercent?: number } = {},
+    signal?: AbortSignal
   ): Promise<SaleQuote> {
     const query = new URLSearchParams({ discount_amount: String(discountAmount), gst_applied: String(gstApplied) });
     if (customerPrice !== undefined) query.set('customer_price', String(customerPrice));
@@ -1366,7 +1367,7 @@ export const billingService = {
     if (overrides.goldProfitPercent !== undefined) query.set('gold_profit_percent', String(overrides.goldProfitPercent));
     const res = await apiClient.get<{ inventory_item: BackendInventoryItem; breakdown: BackendPriceBreakdown; profit_or_loss: number | null }>(
       `/billing/sell/quote/${encodeURIComponent(productCode)}?${query.toString()}`,
-      { auth: true }
+      { auth: true, signal }
     );
     return {
       inventoryItem: mapInventoryItem(res.data.inventory_item),

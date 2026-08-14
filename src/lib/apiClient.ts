@@ -90,10 +90,11 @@ interface RawOptions {
   method?: string;
   body?: unknown;
   token?: string | null;
+  signal?: AbortSignal;
 }
 
 async function rawRequest<T>(path: string, opts: RawOptions = {}): Promise<ApiEnvelope<T>> {
-  const { method = 'GET', body, token } = opts;
+  const { method = 'GET', body, token, signal } = opts;
   const isFormData = typeof FormData !== 'undefined' && body instanceof FormData;
   const headers: Record<string, string> = { Accept: 'application/json' };
   // FormData must NOT get an explicit Content-Type — the browser sets its
@@ -108,8 +109,15 @@ async function rawRequest<T>(path: string, opts: RawOptions = {}): Promise<ApiEn
       method,
       headers,
       body: body === undefined ? undefined : isFormData ? (body as FormData) : JSON.stringify(body),
+      signal,
     });
   } catch (networkError) {
+    // An aborted request is a caller decision (a superseded recalculation),
+    // not a backend failure — rethrow it untouched so callers can ignore it
+    // instead of showing the user a network error.
+    if (networkError instanceof DOMException && networkError.name === 'AbortError') {
+      throw networkError;
+    }
     throw new ApiError(
       `Unable to reach the DFX Solution API at ${API_BASE_URL}. Please make sure the backend server is running.`,
       0,
@@ -181,16 +189,19 @@ export interface RequestOptions {
   body?: unknown;
   /** Attach the stored Bearer token and auto-rotate it on 401. */
   auth?: boolean;
+  /** Abort a request that has been superseded. Rejects with a DOMException
+   *  named 'AbortError', which callers are expected to swallow. */
+  signal?: AbortSignal;
 }
 
 export async function apiRequest<T = any>(
   path: string,
   options: RequestOptions = {}
 ): Promise<ApiEnvelope<T>> {
-  const { method = 'GET', body, auth = false } = options;
+  const { method = 'GET', body, auth = false, signal } = options;
 
   if (!auth) {
-    return rawRequest<T>(path, { method, body });
+    return rawRequest<T>(path, { method, body, signal });
   }
 
   const token = tokenStore.getAccessToken();
@@ -199,7 +210,7 @@ export async function apiRequest<T = any>(
   }
 
   try {
-    return await rawRequest<T>(path, { method, body, token });
+    return await rawRequest<T>(path, { method, body, token, signal });
   } catch (error) {
     // Access token rejected — try a single silent refresh, then replay the call.
     if (error instanceof ApiError && error.status === 401) {
@@ -208,7 +219,7 @@ export async function apiRequest<T = any>(
         tokenStore.clear();
         throw new ApiError('Your session has expired. Please sign in again.', 401);
       }
-      return rawRequest<T>(path, { method, body, token: newToken });
+      return rawRequest<T>(path, { method, body, token: newToken, signal });
     }
     throw error;
   }
