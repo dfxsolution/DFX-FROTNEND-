@@ -13,6 +13,7 @@ import { Input } from '@/components/ui/input';
 import {
   enrollmentService, AdminEnrollment, EnrollmentStatus, EnrollmentBalance,
 } from '@/services/enrollmentService';
+import { billingService, Sale } from '@/services/billingService';
 import { ApiError } from '@/lib/apiClient';
 import { formatCurrency } from '@/lib/formatters';
 
@@ -42,8 +43,35 @@ export default function AdminEnrollmentsPage() {
   const [closeOpen, setCloseOpen] = useState(false);
   const [closeReason, setCloseReason] = useState('');
   const [redeemOpen, setRedeemOpen] = useState(false);
-  const [redeemSaleId, setRedeemSaleId] = useState('');
   const [redeemAmount, setRedeemAmount] = useState('');
+  /* Eligible-invoice picker. The Admin never types an internal sale ID. */
+  const [saleSearch, setSaleSearch] = useState('');
+  const [eligibleSales, setEligibleSales] = useState<Sale[]>([]);
+  const [salesLoading, setSalesLoading] = useState(false);
+  const [selectedSale, setSelectedSale] = useState<Sale | null>(null);
+
+  /* Invoices this enrollment's balance may legitimately settle. Filtered to the
+   * same customer, intact sales only, and only those still owing money. This is
+   * a convenience filter — the redemption endpoint re-validates tenant,
+   * customer, sale status, balance and outstanding, and remains the authority. */
+  const loadEligibleSales = async (target: EnrollmentBalance, search: string) => {
+    setSalesLoading(true);
+    try {
+      const res = await billingService.listSales({
+        search: search.trim() || target.customerName,
+        saleStatus: 'COMPLETED',
+        limit: 50,
+      });
+      setEligibleSales(
+        res.sales.filter((sl) => sl.customerId === target.customerId && sl.amountOutstanding > 0)
+      );
+    } catch (err) {
+      setPanelError(err instanceof ApiError ? err.message : 'Could not load the customer invoices.');
+      setEligibleSales([]);
+    } finally {
+      setSalesLoading(false);
+    }
+  };
 
   const openDetails = async (enrollmentId: string) => {
     setBalance(null);
@@ -89,25 +117,45 @@ export default function AdminEnrollmentsPage() {
     }
   };
 
+  /* MIN(scheme balance, invoice outstanding) — the store can neither spend
+   * credit the customer never paid in nor over-settle an invoice. */
+  const maxRedeemable = balance
+    ? Math.min(balance.availableBalance, selectedSale?.amountOutstanding ?? balance.availableBalance)
+    : 0;
+  const parsedRedeem = parseFloat(redeemAmount);
+  const redeemValid =
+    !!selectedSale &&
+    !isNaN(parsedRedeem) &&
+    parsedRedeem > 0 &&
+    parsedRedeem <= maxRedeemable + 0.005;
+
   const handleRedeem = async () => {
     if (!balance) return;
     const amount = parseFloat(redeemAmount);
-    if (!redeemSaleId.trim()) {
-      setPanelError('Enter the invoice/sale ID the scheme balance should settle.');
+    if (!selectedSale) {
+      setPanelError('Select the invoice the scheme balance should settle.');
       return;
     }
     if (isNaN(amount) || amount <= 0) {
       setPanelError('Enter a redemption amount greater than zero.');
       return;
     }
+    if (amount > maxRedeemable + 0.005) {
+      setPanelError(
+        `Maximum redeemable against this invoice is ${formatCurrency(maxRedeemable)}.`
+      );
+      return;
+    }
     setPanelError('');
     setSaving(true);
     try {
       applyUpdated(
-        await enrollmentService.redeemScheme(balance.enrollmentId, redeemSaleId.trim(), amount)
+        await enrollmentService.redeemScheme(balance.enrollmentId, selectedSale.id, amount)
       );
       setRedeemOpen(false);
-      setRedeemSaleId('');
+      setSelectedSale(null);
+      setSaleSearch('');
+      setEligibleSales([]);
       setRedeemAmount('');
     } catch (err) {
       setPanelError(err instanceof ApiError ? err.message : 'Could not redeem the scheme balance.');
@@ -307,8 +355,11 @@ export default function AdminEnrollmentsPage() {
             <Button
               onClick={() => {
                 setPanelError('');
-                setRedeemAmount(String(balance.availableBalance));
+                setSelectedSale(null);
+                setSaleSearch('');
+                setRedeemAmount('');
                 setRedeemOpen(true);
+                void loadEligibleSales(balance, '');
               }}
             >
               Redeem For Purchase
@@ -345,34 +396,129 @@ export default function AdminEnrollmentsPage() {
       <Dialog isOpen={redeemOpen} onClose={() => setRedeemOpen(false)} title="Redeem For Purchase" maxWidth="max-w-md">
         <div className="space-y-3">
           <div className="rounded-xl border border-slate-200 divide-y divide-slate-100">
-            <div className="flex items-center justify-between px-3 py-2">
-              <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">Available Balance</span>
-              <span className="text-xs font-bold font-mono text-emerald-700">
-                {formatCurrency(balance?.availableBalance ?? 0)}
-              </span>
-            </div>
+            {[
+              ['Customer', balance?.customerName ?? '—'],
+              ['Scheme', balance?.schemeName ?? '—'],
+              ['Total Contributions', formatCurrency(balance?.totalPaid ?? 0)],
+              ['Total Redeemed', formatCurrency(balance?.totalRedeemed ?? 0)],
+              ['Available Scheme Balance', formatCurrency(balance?.availableBalance ?? 0)],
+              ['Scheme Status', balance?.status ?? '—'],
+            ].map(([label, value]) => (
+              <div key={label} className="flex items-center justify-between px-3 py-2">
+                <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">{label}</span>
+                <span className="text-xs font-bold text-[#0B0E23]">{value}</span>
+              </div>
+            ))}
           </div>
-          <Input
-            value={redeemSaleId}
-            onChange={(e) => setRedeemSaleId(e.target.value)}
-            placeholder="Sale / invoice ID to settle"
-          />
-          <Input
-            type="number"
-            step="0.01"
-            value={redeemAmount}
-            onChange={(e) => setRedeemAmount(e.target.value)}
-            placeholder={`Max ${balance?.availableBalance ?? 0}`}
-          />
-          <p className="text-[11px] text-slate-500 font-medium">
-            Applied to the invoice as a scheme redemption, not as cash collected. Any leftover
-            balance stays available for a future purchase.
-          </p>
+
+          {/* Invoice picker — same customer, intact sales, still owing money. */}
+          {!selectedSale && (
+            <div className="space-y-2">
+              <Input
+                value={saleSearch}
+                onChange={(e) => setSaleSearch(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' && balance) void loadEligibleSales(balance, saleSearch);
+                }}
+                placeholder="Search invoice number or product, then press Enter"
+              />
+              {salesLoading && <p className="text-[11px] text-slate-500 font-medium">Loading invoices…</p>}
+              {!salesLoading && eligibleSales.length === 0 && (
+                <p className="text-[11px] text-slate-500 font-medium">
+                  No unsettled invoice found for this customer.
+                </p>
+              )}
+              {eligibleSales.length > 0 && (
+                <ul className="rounded-xl border border-slate-200 divide-y divide-slate-100 max-h-48 overflow-y-auto">
+                  {eligibleSales.map((sl) => (
+                    <li key={sl.id}>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setSelectedSale(sl);
+                          setPanelError('');
+                          setRedeemAmount(
+                            String(Math.min(balance?.availableBalance ?? 0, sl.amountOutstanding))
+                          );
+                        }}
+                        className="w-full text-left px-3 py-2 hover:bg-slate-50 transition-colors"
+                      >
+                        <p className="text-xs font-bold font-mono text-[#0B0E23]">{sl.invoiceNumber}</p>
+                        <p className="text-[11px] text-slate-500 font-medium">
+                          {sl.productName} · Total {formatCurrency(sl.finalAmount)} · Outstanding{' '}
+                          {formatCurrency(sl.amountOutstanding)}
+                        </p>
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
+          )}
+
+          {selectedSale && balance && (
+            <>
+              <div className="rounded-xl border border-gold/40 bg-gold/5 px-3 py-2.5 flex items-start justify-between gap-3">
+                <div>
+                  <p className="text-xs font-bold font-mono text-[#0B0E23]">{selectedSale.invoiceNumber}</p>
+                  <p className="text-[11px] text-slate-600 font-medium">{selectedSale.productName}</p>
+                </div>
+                <Button size="sm" variant="outline" onClick={() => setSelectedSale(null)}>
+                  Change
+                </Button>
+              </div>
+
+              <Input
+                type="number"
+                step="0.01"
+                value={redeemAmount}
+                onChange={(e) => setRedeemAmount(e.target.value)}
+                placeholder={`Max ${maxRedeemable}`}
+              />
+
+              {/* Live settlement preview. Figures come from the sale's own
+                * backend-recorded totals — no calculation engine here. */}
+              <div className="rounded-xl border border-slate-200 divide-y divide-slate-100">
+                {[
+                  ['Sale Total', formatCurrency(selectedSale.finalAmount)],
+                  ['Other Amount Paid', formatCurrency(selectedSale.amountPaid)],
+                  ['Scheme Redemption', formatCurrency(redeemValid ? parsedRedeem : 0)],
+                  [
+                    'Remaining Customer Payment',
+                    formatCurrency(
+                      Math.max(0, selectedSale.amountOutstanding - (redeemValid ? parsedRedeem : 0))
+                    ),
+                  ],
+                  [
+                    'Scheme Balance After',
+                    formatCurrency(
+                      Math.max(0, balance.availableBalance - (redeemValid ? parsedRedeem : 0))
+                    ),
+                  ],
+                ].map(([label, value]) => (
+                  <div key={label} className="flex items-center justify-between px-3 py-2">
+                    <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">{label}</span>
+                    <span className="text-xs font-bold font-mono text-[#0B0E23]">{value}</span>
+                  </div>
+                ))}
+              </div>
+
+              <p className="text-[11px] text-slate-500 font-medium">
+                Maximum redeemable here is {formatCurrency(maxRedeemable)} — the lower of the scheme
+                balance and this invoice&apos;s outstanding. Applied as a scheme redemption, never as
+                cash collected. Any remaining balance stays available for a future purchase, and any
+                remaining customer payment is collected through Add Payment on the invoice.
+              </p>
+            </>
+          )}
+
           {panelError && <p className="text-[11px] font-medium text-red-600">{panelError}</p>}
         </div>
         <DialogFooter>
           <Button variant="outline" onClick={() => setRedeemOpen(false)}>Cancel</Button>
-          <Button isLoading={saving} onClick={handleRedeem}>Confirm Redemption</Button>
+          <Button isLoading={saving} disabled={!redeemValid} onClick={handleRedeem}>
+            Confirm Redemption
+          </Button>
         </DialogFooter>
       </Dialog>
     </div>
