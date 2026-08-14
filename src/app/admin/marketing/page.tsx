@@ -11,7 +11,7 @@ import { Textarea, Switch } from '@/components/ui/form-controls';
 import { Toast } from '@/components/ui/toast';
 import { Skeleton } from '@/components/ui/skeleton';
 import { EmptyState } from '@/components/ui/empty-state';
-import { Plus, Pencil, Trash2, Megaphone } from 'lucide-react';
+import { Plus, Pencil, Trash2, Megaphone, ImagePlus } from 'lucide-react';
 import { ApiError } from '@/lib/apiClient';
 
 const EMPTY_FORM: PromotionFormData = {
@@ -47,6 +47,11 @@ export default function MarketingPage() {
 
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
+  // Picked-but-not-yet-uploaded banner file. The upload endpoint needs a
+  // promotion id, so the file is held here and sent right after the
+  // create/update call returns (see handleSave).
+  const [pendingImage, setPendingImage] = useState<File | null>(null);
+  const [imagePreview, setImagePreview] = useState<string>('');
   const [form, setForm] = useState<PromotionFormData>(EMPTY_FORM);
   const [fieldErrors, setFieldErrors] = useState<FieldErrors>({});
   const [formError, setFormError] = useState('');
@@ -141,13 +146,20 @@ export default function MarketingPage() {
     setFormError('');
     setSaving(true);
     try {
+      let promoId = editingId;
       if (editingId) {
         await promotionService.updatePromotion(editingId, form);
         setToast({ message: 'Promotion updated successfully', type: 'success' });
       } else {
-        await promotionService.createPromotion(form);
+        const created = await promotionService.createPromotion(form);
+        promoId = created.id;
         setToast({ message: 'Promotion created successfully', type: 'success' });
       }
+      if (pendingImage && promoId) {
+        await promotionService.uploadPromotionImage(promoId, pendingImage);
+      }
+      setPendingImage(null);
+      setImagePreview('');
       setDialogOpen(false);
       await loadPromotions();
     } catch (err) {
@@ -352,13 +364,43 @@ export default function MarketingPage() {
           </div>
 
           <div className="space-y-1">
-            <label className="font-bold text-slate-500 uppercase text-[10px]">Image URL</label>
-            <Input
-              error={!!fieldErrors.imageUrl}
-              value={form.imageUrl}
-              onChange={(e) => setForm((f) => ({ ...f, imageUrl: e.target.value }))}
-              placeholder="https://..."
+            <label className="font-bold text-slate-500 uppercase text-[10px]">Banner Image</label>
+            {/* 16:9 — matches the mobile app's banner box, so what's shown
+              * here is exactly what the customer sees (object-cover, so the
+              * same edges get cropped). */}
+            <div className="relative w-full aspect-video rounded-xl border border-slate-200 bg-slate-50 overflow-hidden flex items-center justify-center">
+              {imagePreview || form.imageUrl ? (
+                // eslint-disable-next-line @next/next/no-img-element
+                <img src={imagePreview || form.imageUrl} alt="Banner preview" className="w-full h-full object-cover" />
+              ) : (
+                <span className="text-[11px] text-slate-400 font-medium">No image selected</span>
+              )}
+            </div>
+            <input
+              id="promo-image-input"
+              type="file"
+              accept="image/*"
+              className="hidden"
+              onChange={(e) => {
+                const file = e.target.files?.[0];
+                if (!file) return;
+                setPendingImage(file);
+                setImagePreview(URL.createObjectURL(file));
+              }}
             />
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              className="w-full"
+              onClick={() => document.getElementById('promo-image-input')?.click()}
+            >
+              <ImagePlus className="h-3.5 w-3.5 mr-1.5" />
+              {imagePreview || form.imageUrl ? 'Replace Image' : 'Upload Image'}
+            </Button>
+            <p className="text-[10px] text-slate-400 font-medium">
+              Uploaded on save. Shown to customers at 16:9 — keep key content centered.
+            </p>
             {fieldErrors.imageUrl && <p className="text-[11px] text-red-600 font-medium">{fieldErrors.imageUrl}</p>}
           </div>
 

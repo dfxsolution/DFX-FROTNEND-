@@ -154,6 +154,19 @@ export const promotionService = {
     return mapAdminPromotion(res.data.promotion);
   },
 
+  /** POST /api/v1/admin/promotions/{id}/image — uploads the banner image and
+   * returns the promotion carrying the stored production URL. */
+  async uploadPromotionImage(id: string, file: File): Promise<AdminPromotion> {
+    const formData = new FormData();
+    formData.append('file', file);
+    const res = await apiClient.post<{ promotion: BackendPromotion }>(
+      `/admin/promotions/${id}/image`,
+      formData,
+      { auth: true }
+    );
+    return mapAdminPromotion(res.data.promotion);
+  },
+
   /** DELETE /api/v1/admin/promotions/{id} — permanent delete. */
   async deletePromotion(id: string): Promise<void> {
     await apiClient.delete(`/admin/promotions/${id}`, { auth: true });

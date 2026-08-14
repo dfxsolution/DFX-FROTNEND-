@@ -44,7 +44,7 @@ export const CUSTOMER_NAV_ITEMS = [
 // `staffModule` maps a nav item to the granular Staff permission that gates
 // it (see staffService.ts's STAFF_MODULES / backend's ALL_STAFF_MODULES).
 // Admin/SuperAdmin always see and can reach every item regardless. Items
-// with no staffModule (Dashboard, Appointments, Staff Users, Settings) are
+// with no staffModule (Dashboard, Staff Users, Settings) are
 // never shown to Staff, matching the backend's require_admin_only there.
 export const ADMIN_NAV_ITEMS = [
   { key: 'dashboard', icon: 'LayoutDashboard', label: 'Dashboard', path: '/admin', ready: true, staffModule: null, group: null },

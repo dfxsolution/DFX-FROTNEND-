@@ -277,8 +277,8 @@ export interface InventoryItemFormData {
   wastageType: ChargeType;
   wastageValue: number;
   goldProfitPercent: number;
-  stoneChargeAmount: number;
-  otherChargesAmount: number;
+  stoneChargeAmount?: number;
+  otherChargesAmount?: number;
   taxRatePercent: number;
   pricingMode?: PricingMode | null;
 }
@@ -337,8 +337,8 @@ function toBackendInventoryPayload(data: Partial<InventoryItemFormData>) {
     wastage_type: data.wastageType,
     wastage_value: data.wastageValue,
     gold_profit_percent: data.goldProfitPercent,
-    stone_charge_amount: data.stoneChargeAmount,
-    other_charges_amount: data.otherChargesAmount,
+    stone_charge_amount: data.stoneChargeAmount ?? 0,
+    other_charges_amount: data.otherChargesAmount ?? 0,
     tax_rate_percent: data.taxRatePercent,
     pricing_mode: data.pricingMode ?? null,
   };
@@ -448,6 +448,11 @@ export interface SaleCreateData {
   pricingMode?: PricingMode;
   paymentMethod?: PaymentMethod;
   paymentStatus?: PaymentStatus;
+  /* Optional per-bill overrides — the backend recalculates with these so the
+   * finalized sale matches the previewed bill exactly. */
+  makingChargeValue?: number;
+  wastageValue?: number;
+  goldProfitPercent?: number;
 }
 
 interface BackendSale extends BackendPriceBreakdown {
@@ -536,8 +541,8 @@ export interface BulkPurchaseLineItem {
   wastageType: ChargeType;
   wastageValue: number;
   goldProfitPercent: number;
-  stoneChargeAmount: number;
-  otherChargesAmount: number;
+  stoneChargeAmount?: number;
+  otherChargesAmount?: number;
   taxRatePercent: number;
   pricingMode?: PricingMode | null;
 }
@@ -566,8 +571,8 @@ function toBackendLineItem(i: BulkPurchaseLineItem) {
     wastage_type: i.wastageType,
     wastage_value: i.wastageValue,
     gold_profit_percent: i.goldProfitPercent,
-    stone_charge_amount: i.stoneChargeAmount,
-    other_charges_amount: i.otherChargesAmount,
+    stone_charge_amount: i.stoneChargeAmount ?? 0,
+    other_charges_amount: i.otherChargesAmount ?? 0,
     tax_rate_percent: i.taxRatePercent,
     pricing_mode: i.pricingMode ?? null,
   };
@@ -607,6 +612,63 @@ export interface BillingPeriodSummary {
 export type BusinessHistoryPeriod =
   | 'today' | 'yesterday' | 'this_week' | 'last_week'
   | 'this_month' | 'last_month' | 'last_3_months' | 'last_6_months' | 'last_12_months';
+
+/** Periods accepted by GET /billing/business-summary. */
+export type BusinessSummaryPeriod =
+  | 'today' | 'yesterday' | 'this_week' | 'this_month'
+  | 'last_month' | 'last_3_months' | 'last_6_months' | 'last_12_months';
+
+export const BUSINESS_SUMMARY_PERIOD_OPTIONS: { value: BusinessSummaryPeriod; label: string }[] = [
+  { value: 'today', label: 'Today' },
+  { value: 'yesterday', label: 'Yesterday' },
+  { value: 'this_week', label: 'This Week' },
+  { value: 'this_month', label: 'This Month' },
+  { value: 'last_month', label: 'Last Month' },
+  { value: 'last_3_months', label: 'Last 3 Months' },
+  { value: 'last_6_months', label: 'Last 6 Months' },
+  { value: 'last_12_months', label: 'Last 12 Months' },
+];
+
+export interface BusinessSummary {
+  period: string;
+  dateFrom: string;
+  dateTo: string;
+  totalSales: number;
+  totalProfit: number;
+  totalLoss: number;
+  billCount: number;
+  itemsSold: number;
+  totalTax: number;
+  averageBillValue: number;
+}
+
+interface BackendBusinessSummary {
+  period: string;
+  date_from: string;
+  date_to: string;
+  total_sales: number;
+  total_profit: number;
+  total_loss: number;
+  bill_count: number;
+  items_sold: number;
+  total_tax: number;
+  average_bill_value: number;
+}
+
+function mapBusinessSummary(raw: BackendBusinessSummary): BusinessSummary {
+  return {
+    period: raw.period,
+    dateFrom: raw.date_from,
+    dateTo: raw.date_to,
+    totalSales: raw.total_sales,
+    totalProfit: raw.total_profit,
+    totalLoss: raw.total_loss,
+    billCount: raw.bill_count,
+    itemsSold: raw.items_sold,
+    totalTax: raw.total_tax,
+    averageBillValue: raw.average_bill_value,
+  };
+}
 
 export interface RecentSale {
   id: string;
@@ -785,8 +847,8 @@ export const billingService = {
     wastageType: ChargeType;
     wastageValue: number;
     goldProfitPercent: number;
-    stoneChargeAmount: number;
-    otherChargesAmount: number;
+    stoneChargeAmount?: number;
+    otherChargesAmount?: number;
     taxRatePercent: number;
     purchaseCost?: number;
     customerPrice?: number;
@@ -801,8 +863,8 @@ export const billingService = {
         wastage_type: input.wastageType,
         wastage_value: input.wastageValue,
         gold_profit_percent: input.goldProfitPercent,
-        stone_charge_amount: input.stoneChargeAmount,
-        other_charges_amount: input.otherChargesAmount,
+        stone_charge_amount: input.stoneChargeAmount ?? 0,
+        other_charges_amount: input.otherChargesAmount ?? 0,
         tax_rate_percent: input.taxRatePercent,
         gst_applied: true,
         purchase_cost: input.purchaseCost ?? null,
@@ -913,10 +975,14 @@ export const billingService = {
     productCode: string,
     discountAmount = 0,
     gstApplied = true,
-    customerPrice?: number
+    customerPrice?: number,
+    overrides: { makingChargeValue?: number; wastageValue?: number; goldProfitPercent?: number } = {}
   ): Promise<SaleQuote> {
     const query = new URLSearchParams({ discount_amount: String(discountAmount), gst_applied: String(gstApplied) });
     if (customerPrice !== undefined) query.set('customer_price', String(customerPrice));
+    if (overrides.makingChargeValue !== undefined) query.set('making_charge_value', String(overrides.makingChargeValue));
+    if (overrides.wastageValue !== undefined) query.set('wastage_value', String(overrides.wastageValue));
+    if (overrides.goldProfitPercent !== undefined) query.set('gold_profit_percent', String(overrides.goldProfitPercent));
     const res = await apiClient.get<{ inventory_item: BackendInventoryItem; breakdown: BackendPriceBreakdown; profit_or_loss: number | null }>(
       `/billing/sell/quote/${encodeURIComponent(productCode)}?${query.toString()}`,
       { auth: true }
@@ -942,6 +1008,9 @@ export const billingService = {
         pricing_mode: data.pricingMode ?? null,
         payment_method: data.paymentMethod ?? 'CASH',
         payment_status: data.paymentStatus ?? 'PAID',
+        making_charge_value: data.makingChargeValue ?? null,
+        wastage_value: data.wastageValue ?? null,
+        gold_profit_percent: data.goldProfitPercent ?? null,
       },
       { auth: true }
     );
@@ -980,5 +1049,23 @@ export const billingService = {
     const query = period ? `?period=${period}` : '';
     const res = await apiClient.get<BackendBillingDashboardSummary>(`/billing/dashboard-summary${query}`, { auth: true });
     return mapDashboardSummary(res.data);
+  },
+
+  /** Real backend aggregation for the Business History block — either a named
+   * period or an explicit custom date range (never filtered client-side). */
+  async getBusinessSummary(params: {
+    period?: BusinessSummaryPeriod;
+    dateFrom?: string;
+    dateTo?: string;
+  }): Promise<BusinessSummary> {
+    const query = new URLSearchParams();
+    if (params.dateFrom && params.dateTo) {
+      query.set('date_from', params.dateFrom);
+      query.set('date_to', params.dateTo);
+    } else if (params.period) {
+      query.set('period', params.period);
+    }
+    const res = await apiClient.get<BackendBusinessSummary>(`/billing/business-summary?${query.toString()}`, { auth: true });
+    return mapBusinessSummary(res.data);
   },
 };

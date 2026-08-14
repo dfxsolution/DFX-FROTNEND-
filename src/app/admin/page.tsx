@@ -423,6 +423,12 @@ export default function AdminDashboardPage() {
             <Badge variant="gold">{paymentWeek?.range.label ?? 'Last 7 Days'}</Badge>
           </CardHeader>
           <CardContent className="p-0">
+            {collectionsChartData.every((d) => !d.collections) ? (
+              <div className="h-64 w-full flex flex-col items-center justify-center text-center gap-1">
+                <p className="text-sm font-bold text-slate-500">No collections in the last 7 days</p>
+                <p className="text-xs text-slate-400 font-medium">Scheme installment payments will appear here as they are recorded.</p>
+              </div>
+            ) : (
             <div className="h-64 w-full">
               <ResponsiveContainer width="100%" height="100%">
                 <AreaChart data={collectionsChartData} margin={{ top: 10, right: 10, left: 0, bottom: 0 }}>
@@ -443,6 +449,7 @@ export default function AdminDashboardPage() {
                 </AreaChart>
               </ResponsiveContainer>
             </div>
+            )}
 
             {/* Summary Note Beneath Chart */}
             <div className="pt-3 border-t border-slate-100 flex items-center justify-between text-xs text-slate-500 font-medium mt-2">

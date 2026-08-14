@@ -29,6 +29,9 @@ export default function NewSalePage() {
   const [quote, setQuote] = useState<SaleQuote | null>(null);
   const [customerPrice, setCustomerPrice] = useState('');
   const [gstApplied, setGstApplied] = useState(true);
+  const [makingValue, setMakingValue] = useState('');
+  const [wastageValue, setWastageValue] = useState('');
+  const [goldProfitPct, setGoldProfitPct] = useState('');
   const [recalculating, setRecalculating] = useState(false);
   const [priceError, setPriceError] = useState('');
 
@@ -56,6 +59,9 @@ export default function NewSalePage() {
       setQuote(q);
       setCustomerPrice(String(q.breakdown.finalAmount));
       setGstApplied(true);
+      setMakingValue(String(q.breakdown.makingChargeValue));
+      setWastageValue(String(q.breakdown.wastageValue));
+      setGoldProfitPct(String(q.breakdown.goldProfitPercent));
       setStage('review');
     } catch (err) {
       setScanError(err instanceof ApiError ? err.message : 'Could not load this product.');
@@ -66,7 +72,13 @@ export default function NewSalePage() {
   /** Every change to the price or the GST switch is re-verified against the
    * backend's own deterministic calculation — the numbers shown are never
    * computed purely client-side. */
-  const recalculate = async (nextPrice: string, nextGst: boolean) => {
+  const num = (v: string) => (v.trim() !== '' && !isNaN(parseFloat(v)) ? parseFloat(v) : undefined);
+
+  const recalculate = async (
+    nextPrice: string,
+    nextGst: boolean,
+    o: { making?: string; wastage?: string; goldProfit?: string } = {}
+  ) => {
     if (!quote) return;
     const parsed = parseFloat(nextPrice);
     const hasPrice = nextPrice.trim() !== '' && !isNaN(parsed);
@@ -74,7 +86,12 @@ export default function NewSalePage() {
     setPriceError('');
     try {
       const q = await billingService.getSaleQuote(
-        quote.inventoryItem.productCode, 0, nextGst, hasPrice ? parsed : undefined
+        quote.inventoryItem.productCode, 0, nextGst, hasPrice ? parsed : undefined,
+        {
+          makingChargeValue: num(o.making ?? makingValue),
+          wastageValue: num(o.wastage ?? wastageValue),
+          goldProfitPercent: num(o.goldProfit ?? goldProfitPct),
+        }
       );
       setQuote(q);
     } catch (err) {
@@ -90,6 +107,9 @@ export default function NewSalePage() {
     setQuote(null);
     setCustomerPrice('');
     setGstApplied(true);
+    setMakingValue('');
+    setWastageValue('');
+    setGoldProfitPct('');
     setCustomerName('');
     setCustomerPhone('');
     setCustomerId('');
@@ -115,6 +135,9 @@ export default function NewSalePage() {
         customerPhone: customerPhone.trim() || undefined,
         customerPrice: !isNaN(parsedPrice) ? parsedPrice : undefined,
         gstApplied,
+        makingChargeValue: num(makingValue),
+        wastageValue: num(wastageValue),
+        goldProfitPercent: num(goldProfitPct),
         paymentMethod,
         paymentStatus,
       });
@@ -209,6 +232,24 @@ export default function NewSalePage() {
             error={priceError}
             profitOrLoss={quote.profitOrLoss}
           />
+
+          <div className="rounded-2xl border border-slate-200 bg-white p-4 grid grid-cols-3 gap-3">
+            <BillField label={`Making (${quote.breakdown.makingChargeType === 'PERCENTAGE' ? '%' : quote.breakdown.makingChargeType === 'PER_GRAM' ? '₹/g' : '₹'})`}>
+              <Input type="number" step="0.01" min="0" className="h-9 text-sm" value={makingValue} disabled={recalculating}
+                onChange={(e) => setMakingValue(e.target.value)}
+                onBlur={(e) => recalculate(customerPrice, gstApplied, { making: e.target.value })} />
+            </BillField>
+            <BillField label={`Wastage (${quote.breakdown.wastageType === 'PERCENTAGE' ? '%' : quote.breakdown.wastageType === 'PER_GRAM' ? '₹/g' : '₹'})`}>
+              <Input type="number" step="0.01" min="0" className="h-9 text-sm" value={wastageValue} disabled={recalculating}
+                onChange={(e) => setWastageValue(e.target.value)}
+                onBlur={(e) => recalculate(customerPrice, gstApplied, { wastage: e.target.value })} />
+            </BillField>
+            <BillField label="Gold Profit %">
+              <Input type="number" step="0.01" min="0" max="100" className="h-9 text-sm" value={goldProfitPct} disabled={recalculating}
+                onChange={(e) => setGoldProfitPct(e.target.value)}
+                onBlur={(e) => recalculate(customerPrice, gstApplied, { goldProfit: e.target.value })} />
+            </BillField>
+          </div>
 
           <div className="rounded-2xl border border-slate-200 bg-white p-4 flex items-center justify-between gap-3">
             <span className="text-xs font-bold text-slate-600">GST on this bill</span>
@@ -358,7 +399,6 @@ function PriceComparisonPanel({
 }) {
   const parsed = parseFloat(customerPrice);
   const hasPrice = customerPrice.trim() !== '' && !isNaN(parsed);
-  const difference = hasPrice ? parsed - sellingPrice : null;
   const isProfit = profitOrLoss !== null && profitOrLoss >= 0;
 
   return (
@@ -366,7 +406,7 @@ function PriceComparisonPanel({
       <div className="grid grid-cols-2 sm:grid-cols-3 gap-4 text-center sm:text-left">
         {purchaseCost !== null && (
           <div>
-            <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Vendor Price</p>
+            <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Historical Cost</p>
             <p className="font-mono font-bold text-base text-[#0B0E23]">{formatCurrency(purchaseCost)}</p>
           </div>
         )}
@@ -397,11 +437,7 @@ function PriceComparisonPanel({
       </div>
 
       {hasPrice && (
-        <div className="grid grid-cols-2 gap-3 pt-2">
-          <div className="rounded-xl bg-slate-50 p-3 text-center">
-            <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Difference</p>
-            <p className="font-mono font-bold text-sm text-[#0B0E23]">{formatCurrency(difference ?? 0)}</p>
-          </div>
+        <div className="grid grid-cols-1 gap-3 pt-2">
           {profitOrLoss !== null && (
             <div className={`rounded-xl p-3 text-center border ${isProfit ? 'bg-emerald-50 border-emerald-200' : 'bg-red-50 border-red-200'}`}>
               <p className={`text-[10px] font-bold uppercase tracking-wider ${isProfit ? 'text-emerald-700' : 'text-red-700'}`}>
@@ -414,6 +450,17 @@ function PriceComparisonPanel({
           )}
         </div>
       )}
+    </div>
+  );
+}
+
+/** Compact inline bill-input cell — keeps the pre-confirmation editor
+ * POS-dense rather than turning it into a full form. */
+function BillField({ label, children }: { label: string; children: React.ReactNode }) {
+  return (
+    <div className="space-y-1">
+      <label className="text-[10px] font-bold text-slate-500 uppercase tracking-wider block">{label}</label>
+      {children}
     </div>
   );
 }

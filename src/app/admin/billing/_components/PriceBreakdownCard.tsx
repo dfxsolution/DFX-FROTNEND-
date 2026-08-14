@@ -24,7 +24,7 @@ export function PriceBreakdownCard({
 }) {
   const rows: Row[] = [
     { label: `Gold Value (${breakdown.netGoldWeightGrams.toFixed(3)}g × ${formatCurrency(breakdown.goldRateApplied)}/g)`, value: formatCurrency(breakdown.goldValueAmount) },
-    ...(breakdown.goldProfitPercent > 0
+    ...(breakdown.goldProfitAmount > 0
       ? [{ label: `Gold Profit (${breakdown.goldProfitPercent}%)`, value: formatCurrency(breakdown.goldProfitAmount) }]
       : []),
     { label: `Making Charge (${chargeLabel(breakdown.makingChargeType, breakdown.makingChargeValue)})`, value: formatCurrency(breakdown.makingChargeAmount) },
