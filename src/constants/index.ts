@@ -74,7 +74,6 @@ export const ADMIN_NAV_ITEMS = [
 export const SUPER_ADMIN_NAV_ITEMS = [
   { key: 'dashboard', icon: 'LayoutDashboard', label: 'Dashboard', path: '/superadmin', ready: true },
   { key: 'tenants', icon: 'Building2', label: 'Tenants', path: '/superadmin/tenants', ready: true },
-  { key: 'subscriptions', icon: 'CreditCard', label: 'Subscriptions', path: '/superadmin/subscriptions', ready: true },
   { key: 'branding', icon: 'Palette', label: 'Branding', path: '/superadmin/branding', ready: true },
   { key: 'audit', icon: 'ShieldCheck', label: 'Audit Logs', path: '/superadmin/audit', ready: true },
   { key: 'integrations', icon: 'Plug', label: 'Integrations', path: '/superadmin/integrations', ready: true },

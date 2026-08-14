@@ -25,9 +25,53 @@ import {
   CartesianGrid,
 } from 'recharts';
 import { formatCurrency } from '@/lib/formatters';
-import { reportService, PaymentSummary, TopCustomersReport, EnrollmentSummary } from '@/services/reportService';
+import {
+  reportService,
+  PaymentSummary,
+  TopCustomersReport,
+  EnrollmentSummary,
+  ReportRangeParams,
+} from '@/services/reportService';
 import { ApiError } from '@/lib/apiClient';
 import { triggerExportDownload } from '@/lib/exportDownload';
+
+/** Single source of truth for the page-wide period selector. Every panel
+ * below is driven by this one value — no panel keeps its own window.
+ * `last_month` and `custom` aren't backend ReportPeriod values, so they're
+ * translated into an explicit dateFrom/dateTo range instead. */
+type PeriodKey = 'today' | 'this_week' | 'this_month' | 'last_month' | 'this_year' | 'custom';
+
+const PERIOD_OPTIONS: { key: PeriodKey; label: string }[] = [
+  { key: 'today', label: 'Today' },
+  { key: 'this_week', label: 'This Week' },
+  { key: 'this_month', label: 'This Month' },
+  { key: 'last_month', label: 'Last Month' },
+  { key: 'this_year', label: 'This Year' },
+  { key: 'custom', label: 'Custom' },
+];
+
+const toIsoDate = (d: Date) =>
+  `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+
+/** Returns null when a custom range is selected but not yet fully filled in,
+ * signalling callers to hold off on fetching. */
+function buildRangeParams(
+  period: PeriodKey,
+  customFrom: string,
+  customTo: string,
+): ReportRangeParams | null {
+  if (period === 'last_month') {
+    const now = new Date();
+    const first = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+    const last = new Date(now.getFullYear(), now.getMonth(), 0);
+    return { dateFrom: toIsoDate(first), dateTo: toIsoDate(last) };
+  }
+  if (period === 'custom') {
+    if (!customFrom || !customTo) return null;
+    return { dateFrom: customFrom, dateTo: customTo };
+  }
+  return { period };
+}
 
 const ENROLLMENT_STATUS_BADGE: Record<string, 'success' | 'neutral' | 'danger'> = {
   ACTIVE: 'success',
@@ -69,18 +113,24 @@ export default function AdminReportsPage() {
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState('');
 
+  const [period, setPeriod] = useState<PeriodKey>('this_year');
+  const [customFrom, setCustomFrom] = useState('');
+  const [customTo, setCustomTo] = useState('');
+
   const [toastMsg, setToastMsg] = useState<string | null>(null);
 
+  const rangeParams = buildRangeParams(period, customFrom, customTo);
+
   const loadReports = async () => {
+    // Custom range not fully specified yet — keep the last view on screen.
+    if (!rangeParams) return;
     setLoading(true);
     setLoadError('');
     try {
-      // "Total Revenue (YTD)" in the header below reflects this: all three
-      // KPI/table calls use the This Year period for a consistent YTD view.
       const [payments, customers, enrollments] = await Promise.all([
-        reportService.getPaymentSummary({ period: 'this_year' }),
-        reportService.getTopCustomers({ period: 'this_year', limit: 10 }),
-        reportService.getEnrollmentSummary({ period: 'this_year' }),
+        reportService.getPaymentSummary(rangeParams),
+        reportService.getTopCustomers({ ...rangeParams, limit: 10 }),
+        reportService.getEnrollmentSummary(rangeParams),
       ]);
       setPaymentSummary(payments);
       setTopCustomers(customers);
@@ -94,12 +144,17 @@ export default function AdminReportsPage() {
 
   useEffect(() => {
     loadReports();
-  }, []);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [period, customFrom, customTo]);
 
   const handleExportExcel = async () => {
+    if (!rangeParams) {
+      setToastMsg('Pick both custom range dates before exporting.');
+      return;
+    }
     setToastMsg("Exporting ledger data to Excel...");
     try {
-      const file = await reportService.exportReportsSummary({ period: 'this_year', format: 'excel' });
+      const file = await reportService.exportReportsSummary({ ...rangeParams, format: 'excel' });
       triggerExportDownload(file);
       setToastMsg(`${file.filename} downloaded`);
     } catch (err) {
@@ -108,12 +163,12 @@ export default function AdminReportsPage() {
   };
 
   // There is only one revenue stream in this system (scheme payments), so
-  // "Total Revenue" and "Total Scheme Collections" currently read from the
-  // same backend figure — see PaymentSummaryResponse in the backend schema.
+  // "Total Revenue" IS the scheme-collections figure — a second card for it
+  // would just repeat the same number (see PaymentSummaryResponse).
   const kpis = paymentSummary
     ? [
         {
-          label: 'Total Revenue (YTD)',
+          label: 'Total Revenue',
           val: formatCurrency(paymentSummary.totalRevenue),
           growth: paymentSummary.totalRevenueGrowthPercent,
           invert: false,
@@ -121,9 +176,9 @@ export default function AdminReportsPage() {
           color: 'text-amber-600 bg-amber-50',
         },
         {
-          label: 'Total Scheme Collections',
-          val: formatCurrency(paymentSummary.totalRevenue),
-          growth: paymentSummary.totalRevenueGrowthPercent,
+          label: 'New Enrollments',
+          val: String(enrollmentSummary?.newEnrollmentsInRange ?? 0),
+          growth: null as number | null,
           invert: false,
           icon: Coins,
           color: 'text-teal-600 bg-teal-50',
@@ -153,7 +208,12 @@ export default function AdminReportsPage() {
     paymentSummary?.monthlyTrend.map((t) => ({
       month: t.label,
       revenue: t.totalAmount,
-      collections: t.totalAmount,
+    })) ?? [];
+
+  const enrollmentChartData =
+    enrollmentSummary?.dailyTrend.map((t) => ({
+      label: t.label,
+      newEnrollments: t.newEnrollments,
     })) ?? [];
 
   return (
@@ -163,10 +223,10 @@ export default function AdminReportsPage() {
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 bg-white p-5 rounded-2xl border border-slate-200 shadow-xs">
         <div>
           <h1 className="font-display font-extrabold text-2xl text-[#0B0E23]">
-            Executive Business & Financial Reports
+            Reports & Analytics
           </h1>
           <p className="text-xs text-slate-500 mt-0.5 font-medium">
-            Comprehensive audit reports, monthly revenue comparisons, scheme redemptions, and GST GST logs.
+            Revenue, collections, enrollment analytics and top-customer reporting — all for the selected period.
           </p>
         </div>
 
@@ -184,6 +244,57 @@ export default function AdminReportsPage() {
           </Button>
         </div>
       </div>
+
+      {/* PERIOD SELECTOR — single state driving every panel on this page */}
+      <div className="flex flex-wrap items-center gap-2 bg-white p-3 rounded-2xl border border-slate-200 shadow-xs">
+        <span className="text-[10px] font-bold uppercase tracking-wider text-slate-500 mr-1">Period</span>
+        {PERIOD_OPTIONS.map((opt) => (
+          <button
+            key={opt.key}
+            type="button"
+            onClick={() => setPeriod(opt.key)}
+            className={`text-xs font-bold px-3 py-1.5 rounded-lg border transition-colors ${
+              period === opt.key
+                ? 'bg-[#0B0E23] text-white border-[#0B0E23]'
+                : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-50'
+            }`}
+          >
+            {opt.label}
+          </button>
+        ))}
+
+        {period === 'custom' && (
+          <div className="flex items-center gap-2 ml-1">
+            <input
+              type="date"
+              value={customFrom}
+              onChange={(e) => setCustomFrom(e.target.value)}
+              className="text-xs font-medium border border-slate-200 rounded-lg px-2 py-1.5"
+              aria-label="Custom range start date"
+            />
+            <span className="text-xs text-slate-400">to</span>
+            <input
+              type="date"
+              value={customTo}
+              onChange={(e) => setCustomTo(e.target.value)}
+              className="text-xs font-medium border border-slate-200 rounded-lg px-2 py-1.5"
+              aria-label="Custom range end date"
+            />
+          </div>
+        )}
+
+        {paymentSummary && (
+          <Badge variant="gold" className="ml-auto">{paymentSummary.range.label}</Badge>
+        )}
+      </div>
+
+      {period === 'custom' && !rangeParams && (
+        <Card className="p-4 border-amber-200 bg-amber-50/60">
+          <p className="text-xs font-medium text-amber-800">
+            Choose both a start and end date to load the custom-range report.
+          </p>
+        </Card>
+      )}
 
       {loading && (
         <div className="space-y-6">
@@ -230,11 +341,11 @@ export default function AdminReportsPage() {
             <CardHeader className="p-0 mb-4 flex flex-row items-center justify-between">
               <div>
                 <CardTitle className="text-base font-bold text-[#0B0E23]">
-                  Monthly Revenue vs Scheme Collections Comparison
+                  Revenue & Scheme Collections Trend
                 </CardTitle>
-                <p className="text-xs text-slate-500 font-medium">Year-to-date monthly performance</p>
+                <p className="text-xs text-slate-500 font-medium">Performance across the selected period</p>
               </div>
-              <Badge variant="gold">{paymentSummary?.range.label ?? 'YTD'}</Badge>
+              <Badge variant="gold">{paymentSummary?.range.label ?? '—'}</Badge>
             </CardHeader>
             <CardContent className="p-0">
               <div className="h-64 w-full">
@@ -244,8 +355,58 @@ export default function AdminReportsPage() {
                     <XAxis dataKey="month" tickLine={false} axisLine={false} tick={{ fontSize: 11, fill: '#64748B' }} />
                     <YAxis tickLine={false} axisLine={false} tick={{ fontSize: 11, fill: '#64748B' }} tickFormatter={(v) => `₹${v/100000}L`} />
                     <Tooltip formatter={(val: number) => [formatCurrency(val), 'Amount']} contentStyle={{ backgroundColor: '#0B0E23', borderRadius: '12px', color: '#fff', fontSize: '12px' }} />
-                    <Bar dataKey="revenue" fill="#0B0E23" radius={[6, 6, 0, 0]} name="Total Revenue" />
-                    <Bar dataKey="collections" fill="#2C6FBD" radius={[6, 6, 0, 0]} name="Scheme Collections" />
+                    <Bar dataKey="revenue" fill="#0B0E23" radius={[6, 6, 0, 0]} name="Scheme Collections" />
+                  </BarChart>
+                </ResponsiveContainer>
+              </div>
+            </CardContent>
+          </Card>
+
+          {/* ENROLLMENT ANALYTICS (folded in from the former Analytics page) */}
+          <Card className="p-5 bg-white border-slate-200 shadow-xs">
+            <CardHeader className="p-0 mb-4 flex flex-row items-center justify-between">
+              <div>
+                <CardTitle className="text-base font-bold text-[#0B0E23]">Enrollment Analytics</CardTitle>
+                <p className="text-xs text-slate-500 font-medium">
+                  New enrollments over time, with status mix for the selected period
+                </p>
+              </div>
+              <div className="flex items-center gap-4 text-right">
+                <div>
+                  <div className="text-[10px] font-bold uppercase tracking-wider text-slate-500">Retention</div>
+                  <div className="text-sm font-extrabold text-[#0B0E23] font-display">
+                    {enrollmentSummary?.retentionRatePercent !== null &&
+                    enrollmentSummary?.retentionRatePercent !== undefined
+                      ? `${enrollmentSummary.retentionRatePercent.toFixed(1)}%`
+                      : '—'}
+                  </div>
+                </div>
+                <div>
+                  <div className="text-[10px] font-bold uppercase tracking-wider text-slate-500">Completed</div>
+                  <div className="text-sm font-extrabold text-[#0B0E23] font-display">
+                    {enrollmentSummary?.completedCount ?? 0}
+                  </div>
+                </div>
+                <div>
+                  <div className="text-[10px] font-bold uppercase tracking-wider text-slate-500">Cancelled</div>
+                  <div className="text-sm font-extrabold text-[#0B0E23] font-display">
+                    {enrollmentSummary?.cancelledCount ?? 0}
+                  </div>
+                </div>
+              </div>
+            </CardHeader>
+            <CardContent className="p-0">
+              <div className="h-56 w-full">
+                <ResponsiveContainer width="100%" height="100%">
+                  <BarChart data={enrollmentChartData} margin={{ top: 10, right: 10, left: 0, bottom: 0 }}>
+                    <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#E2E8F0" />
+                    <XAxis dataKey="label" tickLine={false} axisLine={false} tick={{ fontSize: 11, fill: '#64748B' }} />
+                    <YAxis tickLine={false} axisLine={false} allowDecimals={false} tick={{ fontSize: 11, fill: '#64748B' }} />
+                    <Tooltip
+                      formatter={(val: number) => [String(val), 'New Enrollments']}
+                      contentStyle={{ backgroundColor: '#0B0E23', borderRadius: '12px', color: '#fff', fontSize: '12px' }}
+                    />
+                    <Bar dataKey="newEnrollments" fill="#2C6FBD" radius={[6, 6, 0, 0]} name="New Enrollments" />
                   </BarChart>
                 </ResponsiveContainer>
               </div>

@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useRef, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -18,6 +18,7 @@ import { formatCurrency, formatWeight } from '@/lib/formatters';
 import { PriceBreakdownCard } from '../_components/PriceBreakdownCard';
 import { InvoiceActions } from '../_components/InvoiceActions';
 import { useTenant } from '@/hooks/useTenant';
+import { customerService, AdminCustomerListItem } from '@/services/customerService';
 
 type Stage = 'scan' | 'loading' | 'review' | 'success';
 
@@ -38,6 +39,9 @@ export default function NewSalePage() {
   const [customerName, setCustomerName] = useState('');
   const [customerPhone, setCustomerPhone] = useState('');
   const [customerId, setCustomerId] = useState('');
+  const [customerQuery, setCustomerQuery] = useState('');
+  const [customerResults, setCustomerResults] = useState<AdminCustomerListItem[]>([]);
+  const [customerSearching, setCustomerSearching] = useState(false);
   const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>('CASH');
   const [paymentStatus, setPaymentStatus] = useState<PaymentStatus>('PAID');
   const [confirmOpen, setConfirmOpen] = useState(false);
@@ -48,6 +52,36 @@ export default function NewSalePage() {
   const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' } | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const { branding } = useTenant();
+
+  // Tenant-scoped customer lookup — staff search by name/phone/email rather
+  // than recalling an internal usr_ id. Debounced so typing doesn't spam the API.
+  useEffect(() => {
+    const q = customerQuery.trim();
+    if (q.length < 2 || customerId) { setCustomerResults([]); return; }
+    let cancelled = false;
+    setCustomerSearching(true);
+    const t = setTimeout(() => {
+      customerService.getAdminCustomers(1, 8, q)
+        .then((r) => { if (!cancelled) setCustomerResults(r.customers); })
+        .catch(() => { if (!cancelled) setCustomerResults([]); })
+        .finally(() => { if (!cancelled) setCustomerSearching(false); });
+    }, 300);
+    return () => { cancelled = true; clearTimeout(t); };
+  }, [customerQuery, customerId]);
+
+  const selectCustomer = (c: AdminCustomerListItem) => {
+    setCustomerId(c.id);
+    setCustomerName(c.name);
+    setCustomerPhone(c.phone ?? '');
+    setCustomerQuery(c.name);
+    setCustomerResults([]);
+  };
+
+  const clearCustomer = () => {
+    setCustomerId('');
+    setCustomerQuery('');
+    setCustomerResults([]);
+  };
 
   const runScan = async (rawCode: string) => {
     const trimmed = rawCode.trim();
@@ -113,6 +147,8 @@ export default function NewSalePage() {
     setCustomerName('');
     setCustomerPhone('');
     setCustomerId('');
+    setCustomerQuery('');
+    setCustomerResults([]);
     setPaymentMethod('CASH');
     setPaymentStatus('PAID');
     setCompletedSale(null);
@@ -280,11 +316,52 @@ export default function NewSalePage() {
               <label className="text-[10px] font-bold text-slate-500 uppercase tracking-wider block">Mobile</label>
               <Input value={customerPhone} onChange={(e) => setCustomerPhone(e.target.value)} placeholder="+91 90000 00000" />
             </div>
-            <div className="space-y-1">
-              <label className="text-[10px] font-bold text-slate-500 uppercase tracking-wider block">Existing Customer ID (optional)</label>
-              <Input value={customerId} onChange={(e) => setCustomerId(e.target.value)} placeholder="usr_..." />
+            <div className="space-y-1 sm:col-span-2 relative">
+              <label className="text-[10px] font-bold text-slate-500 uppercase tracking-wider block">
+                Existing Customer (optional)
+              </label>
+              {customerId ? (
+                <div className="flex items-center justify-between gap-2 rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2">
+                  <span className="text-xs font-bold text-emerald-800 truncate">
+                    {customerName}{customerPhone ? ` · ${customerPhone}` : ''}
+                  </span>
+                  <Button variant="ghost" size="sm" onClick={clearCustomer}>Change</Button>
+                </div>
+              ) : (
+                <>
+                  <Input
+                    value={customerQuery}
+                    onChange={(e) => setCustomerQuery(e.target.value)}
+                    placeholder="Search by name, phone or email"
+                  />
+                  {customerQuery.trim().length >= 2 && (
+                    <div className="absolute z-20 left-0 right-0 top-full mt-1 rounded-xl border border-slate-200 bg-white shadow-lg max-h-56 overflow-y-auto">
+                      {customerSearching ? (
+                        <p className="px-3 py-2 text-xs text-slate-400 font-medium">Searching…</p>
+                      ) : customerResults.length === 0 ? (
+                        <p className="px-3 py-2 text-xs text-slate-400 font-medium">
+                          No customer found — leave blank for a walk-in sale.
+                        </p>
+                      ) : (
+                        customerResults.map((c) => (
+                          <button
+                            key={c.id}
+                            type="button"
+                            onClick={() => selectCustomer(c)}
+                            className="w-full text-left px-3 py-2 hover:bg-slate-50 border-b border-slate-100 last:border-0"
+                          >
+                            <span className="block text-xs font-bold text-[#0B0E23] truncate">{c.name}</span>
+                            <span className="block text-[10px] text-slate-500 font-medium truncate">
+                              {[c.phone, c.email].filter(Boolean).join(' · ') || '—'}
+                            </span>
+                          </button>
+                        ))
+                      )}
+                    </div>
+                  )}
+                </>
+              )}
             </div>
-            <div />
             <div className="space-y-1">
               <label className="text-[10px] font-bold text-slate-500 uppercase tracking-wider block">Payment Method</label>
               <Select value={paymentMethod} onChange={(e) => setPaymentMethod(e.target.value as PaymentMethod)}>
