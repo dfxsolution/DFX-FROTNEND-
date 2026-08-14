@@ -44,6 +44,9 @@ export default function NewSalePage() {
   const [customerSearching, setCustomerSearching] = useState(false);
   const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>('CASH');
   const [paymentStatus, setPaymentStatus] = useState<PaymentStatus>('PAID');
+  // Only meaningful for PARTIAL — the amount actually handed over at the
+  // counter. A PARTIAL bill must record a real collection, not just the label.
+  const [initialPayment, setInitialPayment] = useState('');
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [completing, setCompleting] = useState(false);
   const [completeError, setCompleteError] = useState('');
@@ -141,6 +144,7 @@ export default function NewSalePage() {
     setQuote(null);
     setCustomerPrice('');
     setGstApplied(true);
+    setInitialPayment('');
     setMakingValue('');
     setWastageValue('');
     setGoldProfitPct('');
@@ -156,7 +160,20 @@ export default function NewSalePage() {
     setTimeout(() => inputRef.current?.focus(), 50);
   };
 
-  const canConfirm = customerId.trim().length > 0 || customerName.trim().length > 0;
+  const customerIdentified = customerId.trim().length > 0 || customerName.trim().length > 0;
+
+  /* PARTIAL requires a collected amount strictly between 0 and the invoice
+   * total. Checked here purely so the Admin gets immediate feedback — the
+   * backend enforces the same rule and remains the authority. */
+  const invoiceTotal = quote?.breakdown.finalAmount ?? 0;
+  const parsedInitialPayment = parseFloat(initialPayment);
+  const initialPaymentValid =
+    initialPayment.trim() !== '' &&
+    !isNaN(parsedInitialPayment) &&
+    parsedInitialPayment > 0 &&
+    parsedInitialPayment < invoiceTotal;
+  const partialAmountOk = paymentStatus !== 'PARTIAL' || initialPaymentValid;
+  const canConfirm = customerIdentified && partialAmountOk;
 
   const handleCompleteSale = async () => {
     if (!quote) return;
@@ -176,6 +193,7 @@ export default function NewSalePage() {
         goldProfitPercent: num(goldProfitPct),
         paymentMethod,
         paymentStatus,
+        initialPaymentAmount: paymentStatus === 'PARTIAL' ? parsedInitialPayment : undefined,
       });
       setCompletedSale(sale);
       setConfirmOpen(false);
@@ -370,15 +388,61 @@ export default function NewSalePage() {
             </div>
             <div className="space-y-1">
               <label className="text-[10px] font-bold text-slate-500 uppercase tracking-wider block">Payment Status</label>
-              <Select value={paymentStatus} onChange={(e) => setPaymentStatus(e.target.value as PaymentStatus)}>
+              <Select
+                value={paymentStatus}
+                onChange={(e) => {
+                  const next = e.target.value as PaymentStatus;
+                  setPaymentStatus(next);
+                  if (next !== 'PARTIAL') setInitialPayment('');
+                }}
+              >
                 {PAYMENT_STATUS_OPTIONS.map((s) => <option key={s} value={s}>{s}</option>)}
               </Select>
             </div>
           </div>
 
+          {paymentStatus === 'PARTIAL' && (
+            <div className="space-y-2 bg-amber-50/60 border border-amber-200 rounded-xl p-4">
+              <label className="text-[10px] font-bold text-amber-800 uppercase tracking-wider block">
+                Amount Collected Now
+              </label>
+              <Input
+                type="number"
+                step="0.01"
+                value={initialPayment}
+                onChange={(e) => setInitialPayment(e.target.value)}
+                placeholder="0.00"
+              />
+              <div className="grid grid-cols-3 gap-2 pt-1 text-center">
+                <div>
+                  <p className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">Total</p>
+                  <p className="text-sm font-bold text-[#0B0E23]">{formatCurrency(invoiceTotal)}</p>
+                </div>
+                <div>
+                  <p className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">Paying Now</p>
+                  <p className="text-sm font-bold text-emerald-700">
+                    {formatCurrency(initialPaymentValid ? parsedInitialPayment : 0)}
+                  </p>
+                </div>
+                <div>
+                  <p className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">Outstanding</p>
+                  <p className="text-sm font-bold text-amber-700">
+                    {formatCurrency(initialPaymentValid ? invoiceTotal - parsedInitialPayment : invoiceTotal)}
+                  </p>
+                </div>
+              </div>
+              {!initialPaymentValid && (
+                <p className="text-[11px] font-medium text-amber-800">
+                  Enter an amount greater than 0 and less than the invoice total. To collect the full
+                  amount, set Payment Status to PAID instead.
+                </p>
+              )}
+            </div>
+          )}
+
           <PriceBreakdownCard breakdown={quote.breakdown} />
 
-          {!canConfirm && (
+          {!customerIdentified && (
             <p className="text-[11px] font-medium text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
               Enter a customer name (or an existing Customer ID) to continue.
             </p>

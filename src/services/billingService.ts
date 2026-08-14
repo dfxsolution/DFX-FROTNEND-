@@ -448,6 +448,11 @@ export interface SaleCreateData {
   pricingMode?: PricingMode;
   paymentMethod?: PaymentMethod;
   paymentStatus?: PaymentStatus;
+  /* Required when paymentStatus is PARTIAL — the amount actually collected at
+   * the counter. The backend rejects a PARTIAL sale without it, and rejects it
+   * being sent for PAID/PENDING. */
+  initialPaymentAmount?: number;
+  paymentReferenceNo?: string;
   /* Optional per-bill overrides — the backend recalculates with these so the
    * finalized sale matches the previewed bill exactly. */
   makingChargeValue?: number;
@@ -470,6 +475,8 @@ interface BackendSale extends BackendPriceBreakdown {
   gross_weight_grams: number;
   payment_method: PaymentMethod;
   payment_status: PaymentStatus;
+  amount_paid: number;
+  amount_outstanding: number;
   pricing_mode: PricingMode | null;
   purchase_cost_snapshot: number | null;
   estimated_gross_margin: number | null;
@@ -491,7 +498,10 @@ export interface Sale extends PriceBreakdown {
   huid: string | null;
   grossWeightGrams: number;
   paymentMethod: PaymentMethod;
+  /* Derived by the backend from the payment ledger — never set by this client. */
   paymentStatus: PaymentStatus;
+  amountPaid: number;
+  amountOutstanding: number;
   pricingMode: PricingMode | null;
   purchaseCostSnapshot: number | null;
   estimatedGrossMargin: number | null;
@@ -516,6 +526,8 @@ function mapSale(raw: BackendSale): Sale {
     grossWeightGrams: raw.gross_weight_grams,
     paymentMethod: raw.payment_method,
     paymentStatus: raw.payment_status,
+    amountPaid: raw.amount_paid ?? 0,
+    amountOutstanding: raw.amount_outstanding ?? 0,
     pricingMode: raw.pricing_mode,
     purchaseCostSnapshot: raw.purchase_cost_snapshot,
     estimatedGrossMargin: raw.estimated_gross_margin,
@@ -524,6 +536,104 @@ function mapSale(raw: BackendSale): Sale {
     createdAt: raw.created_at,
   };
 }
+
+/* ------------------------------------------------------------------ */
+/* Sale payment ledger — append-only collection history per invoice.   */
+/* ------------------------------------------------------------------ */
+
+export const SALES_HISTORY_PERIODS = [
+  { value: 'today', label: 'Today' },
+  { value: 'this_week', label: 'This Week' },
+  { value: 'this_month', label: 'This Month' },
+  { value: 'last_month', label: 'Last Month' },
+  { value: 'last_3_months', label: 'Last 3 Months' },
+  { value: 'last_6_months', label: 'Last 6 Months' },
+  { value: 'last_12_months', label: 'Last 12 Months' },
+] as const;
+
+export type SalesHistoryPeriod = (typeof SALES_HISTORY_PERIODS)[number]['value'];
+
+interface BackendSalePayment {
+  id: string;
+  sale_id: string;
+  amount: number;
+  payment_date: string;
+  payment_method: PaymentMethod;
+  source: string;
+  reference_no: string | null;
+  remarks: string | null;
+  recorded_by: string;
+  recorded_by_name: string | null;
+  created_at: string;
+}
+
+interface BackendSalePaymentHistory {
+  sale_id: string;
+  invoice_number: string;
+  final_amount: number;
+  amount_paid: number;
+  amount_outstanding: number;
+  payment_status: PaymentStatus;
+  payments: BackendSalePayment[];
+}
+
+export interface SalePayment {
+  id: string;
+  saleId: string;
+  amount: number;
+  paymentDate: string;
+  paymentMethod: PaymentMethod;
+  source: string;
+  referenceNo: string | null;
+  remarks: string | null;
+  recordedBy: string;
+  recordedByName: string | null;
+  createdAt: string;
+}
+
+export interface SalePaymentHistory {
+  saleId: string;
+  invoiceNumber: string;
+  finalAmount: number;
+  amountPaid: number;
+  amountOutstanding: number;
+  paymentStatus: PaymentStatus;
+  payments: SalePayment[];
+}
+
+export interface RecordPaymentData {
+  amount: number;
+  /** ISO date (YYYY-MM-DD) — the business date of the collection. */
+  paymentDate: string;
+  paymentMethod: PaymentMethod;
+  referenceNo?: string;
+  remarks?: string;
+}
+
+function mapPaymentHistory(raw: BackendSalePaymentHistory): SalePaymentHistory {
+  return {
+    saleId: raw.sale_id,
+    invoiceNumber: raw.invoice_number,
+    finalAmount: raw.final_amount,
+    amountPaid: raw.amount_paid,
+    amountOutstanding: raw.amount_outstanding,
+    paymentStatus: raw.payment_status,
+    payments: raw.payments.map((p) => ({
+      id: p.id,
+      saleId: p.sale_id,
+      amount: p.amount,
+      paymentDate: p.payment_date,
+      paymentMethod: p.payment_method,
+      source: p.source,
+      referenceNo: p.reference_no,
+      remarks: p.remarks,
+      recordedBy: p.recorded_by,
+      recordedByName: p.recorded_by_name,
+      createdAt: p.created_at,
+    })),
+  };
+}
+
 
 export interface BulkPurchaseLineItem {
   productCode: string;
@@ -903,6 +1013,51 @@ export const billingService = {
     await downloadBlob(`/billing/sales/${saleId}/invoice.xlsx`, `${invoiceNumber}.xlsx`);
   },
 
+  /* Sales History export — same raw-blob download path as the per-invoice
+   * exports above, and respects exactly the filters the screen is showing. */
+  async downloadSalesHistoryExcel(params: {
+    period?: SalesHistoryPeriod;
+    dateFrom?: string;
+    dateTo?: string;
+    search?: string;
+    paymentStatus?: PaymentStatus;
+  }): Promise<void> {
+    const query = new URLSearchParams();
+    if (params.dateFrom && params.dateTo) {
+      query.set('date_from', params.dateFrom);
+      query.set('date_to', params.dateTo);
+    } else if (params.period) {
+      query.set('period', params.period);
+    }
+    if (params.search) query.set('search', params.search);
+    if (params.paymentStatus) query.set('payment_status', params.paymentStatus);
+    await downloadBlob(`/billing/sales/export.xlsx?${query.toString()}`, 'sales-history.xlsx');
+  },
+
+  /* Payment ledger */
+  async getPaymentHistory(saleId: string): Promise<SalePaymentHistory> {
+    const res = await apiClient.get<{ paymentHistory: BackendSalePaymentHistory }>(
+      `/billing/sales/${saleId}/payments`,
+      { auth: true }
+    );
+    return mapPaymentHistory(res.data.paymentHistory);
+  },
+
+  async recordPayment(saleId: string, data: RecordPaymentData): Promise<SalePaymentHistory> {
+    const res = await apiClient.post<{ paymentHistory: BackendSalePaymentHistory }>(
+      `/billing/sales/${saleId}/payments`,
+      {
+        amount: data.amount,
+        payment_date: data.paymentDate,
+        payment_method: data.paymentMethod,
+        reference_no: data.referenceNo || null,
+        remarks: data.remarks || null,
+      },
+      { auth: true }
+    );
+    return mapPaymentHistory(res.data.paymentHistory);
+  },
+
   /* Inventory */
   async listInventory(params: {
     page?: number;
@@ -1008,6 +1163,8 @@ export const billingService = {
         pricing_mode: data.pricingMode ?? null,
         payment_method: data.paymentMethod ?? 'CASH',
         payment_status: data.paymentStatus ?? 'PAID',
+        initial_payment_amount: data.initialPaymentAmount ?? null,
+        payment_reference_no: data.paymentReferenceNo ?? null,
         making_charge_value: data.makingChargeValue ?? null,
         wastage_value: data.wastageValue ?? null,
         gold_profit_percent: data.goldProfitPercent ?? null,
@@ -1024,6 +1181,7 @@ export const billingService = {
     search?: string;
     dateFrom?: string;
     dateTo?: string;
+    paymentStatus?: PaymentStatus;
   } = {}): Promise<{ sales: Sale[]; total: number }> {
     const query = new URLSearchParams();
     query.set('page', String(params.page ?? 1));
@@ -1031,6 +1189,7 @@ export const billingService = {
     if (params.search) query.set('search', params.search);
     if (params.dateFrom) query.set('date_from', params.dateFrom);
     if (params.dateTo) query.set('date_to', params.dateTo);
+    if (params.paymentStatus) query.set('payment_status', params.paymentStatus);
 
     const res = await apiClient.get<{ sales: BackendSale[]; total: number }>(
       `/billing/sales?${query.toString()}`,
