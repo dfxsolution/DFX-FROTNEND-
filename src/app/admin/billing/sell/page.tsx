@@ -56,8 +56,10 @@ export default function NewSalePage() {
    * Admin explicitly picks an enrollment and an amount. */
   const [schemeOptions, setSchemeOptions] = useState<EnrollmentBalance[]>([]);
   const [schemeLoading, setSchemeLoading] = useState(false);
-  const [useSchemeId, setUseSchemeId] = useState('');
-  const [schemeAmount, setSchemeAmount] = useState('');
+  /* enrollmentId -> amount typed by the Admin. A customer may settle one bill
+   * from several schemes; each selected scheme keeps its own amount so the
+   * ledger records which scheme funded which rupee. */
+  const [schemeAmounts, setSchemeAmounts] = useState<Record<string, string>>({});
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [completing, setCompleting] = useState(false);
   const [completeError, setCompleteError] = useState('');
@@ -114,8 +116,7 @@ export default function NewSalePage() {
     setCustomerQuery('');
     setCustomerResults([]);
     setSchemeOptions([]);
-    setUseSchemeId('');
-    setSchemeAmount('');
+    setSchemeAmounts({});
   };
 
   /* Load the selected customer's redeemable scheme balances. Filtered to this
@@ -123,7 +124,7 @@ export default function NewSalePage() {
    * from the authoritative backend. Awareness only until the Admin chooses to
    * use one. */
   useEffect(() => {
-    if (!customerId) { setSchemeOptions([]); setUseSchemeId(''); setSchemeAmount(''); return; }
+    if (!customerId) { setSchemeOptions([]); setSchemeAmounts({}); return; }
     let cancelled = false;
     setSchemeLoading(true);
     (async () => {
@@ -258,8 +259,7 @@ export default function NewSalePage() {
     clearBillDraft(user?.tenantId, user?.id);
     setPendingDraft(null);
     setSchemeOptions([]);
-    setUseSchemeId('');
-    setSchemeAmount('');
+    setSchemeAmounts({});
     setStage('scan');
     setCode('');
     setQuote(null);
@@ -383,11 +383,18 @@ export default function NewSalePage() {
     parsedInitialPayment < invoiceTotal;
   const partialAmountOk = paymentStatus !== 'PARTIAL' || initialPaymentValid;
 
-  /* Scheme application maths — all bounded, backend re-validates. */
-  const selectedScheme = schemeOptions.find((sc) => sc.enrollmentId === useSchemeId) || null;
-  const parsedSchemeAmount = parseFloat(schemeAmount);
-  const schemeApplied =
-    !!selectedScheme && !isNaN(parsedSchemeAmount) && parsedSchemeAmount > 0;
+  /* Scheme application maths — all bounded, backend re-validates every line and
+   * the combined total inside one transaction. */
+  const schemeLines = schemeOptions
+    .map((sc) => ({ scheme: sc, amount: parseFloat(schemeAmounts[sc.enrollmentId] ?? '') }))
+    .filter((l) => !isNaN(l.amount) && l.amount > 0);
+  const parsedSchemeAmount = Number(
+    schemeLines.reduce((t, l) => t + l.amount, 0).toFixed(2)
+  );
+  const schemeApplied = schemeLines.length > 0;
+  const anyLineOverBalance = schemeLines.some(
+    (l) => l.amount > l.scheme.availableBalance + 0.005
+  );
   // Cash the customer pays now (the non-scheme side), from the existing payment
   // controls: PAID means cash settles whatever scheme does not.
   const cashNow = schemeApplied
@@ -399,7 +406,7 @@ export default function NewSalePage() {
     : 0;
   const schemePlusCashOk =
     !schemeApplied ||
-    (parsedSchemeAmount <= (selectedScheme?.availableBalance ?? 0) + 0.005 &&
+    (!anyLineOverBalance &&
      Number((parsedSchemeAmount + cashNow).toFixed(2)) <= invoiceTotal + 0.005);
   const schemeOutstanding = schemeApplied
     ? Math.max(0, Number((invoiceTotal - parsedSchemeAmount - cashNow).toFixed(2)))
@@ -438,11 +445,15 @@ export default function NewSalePage() {
         initialPaymentAmount: createInitial,
       });
 
-      if (schemeApplied && selectedScheme) {
-        // Redeem the customer's own scheme balance against this invoice. If this
-        // step fails the sale already exists (cash only) and the draft is kept;
-        // the Admin can retry redemption from the enrollment screen.
-        await enrollmentService.redeemScheme(selectedScheme.enrollmentId, sale.id, parsedSchemeAmount);
+      if (schemeApplied) {
+        // ONE atomic call for every selected scheme. The backend validates all
+        // enrollments and the combined total before writing anything, so a
+        // failure on one scheme leaves none of the others spent. If it fails the
+        // sale already exists (cash only) and the draft is kept.
+        await enrollmentService.redeemSchemes(
+          sale.id,
+          schemeLines.map((l) => ({ enrollmentId: l.scheme.enrollmentId, amount: l.amount }))
+        );
         sale = await billingService.getSale(sale.id);
       }
 
@@ -692,62 +703,106 @@ export default function NewSalePage() {
                 <p className="text-[11px] text-slate-500 font-medium">Loading scheme balance…</p>
               ) : (
                 <>
-                  <Select
-                    value={useSchemeId}
-                    onChange={(e) => {
-                      const id = e.target.value;
-                      setUseSchemeId(id);
-                      const sc = schemeOptions.find((o) => o.enrollmentId === id);
-                      // Default to the lower of the balance and the invoice total.
-                      setSchemeAmount(sc ? String(Math.min(sc.availableBalance, invoiceTotal)) : '');
-                    }}
-                  >
-                    <option value="">Do not use scheme credit</option>
-                    {schemeOptions.map((sc) => (
-                      <option key={sc.enrollmentId} value={sc.enrollmentId}>
-                        {sc.schemeName} · Available {formatCurrency(sc.availableBalance)}
-                      </option>
-                    ))}
-                  </Select>
+                  <p className="text-[11px] text-slate-600 font-medium">
+                    Enter an amount against any scheme the customer wants to use. Leave a scheme
+                    blank to skip it — all selected schemes settle in one transaction.
+                  </p>
 
-                  {selectedScheme && (
-                    <>
-                      <Input
-                        type="number"
-                        step="0.01"
-                        value={schemeAmount}
-                        onChange={(e) => setSchemeAmount(e.target.value)}
-                        placeholder={`Max ${Math.min(selectedScheme.availableBalance, invoiceTotal)}`}
-                      />
-                      <div className="grid grid-cols-3 gap-2 pt-1 text-center">
-                        <div>
-                          <p className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">Invoice</p>
-                          <p className="text-sm font-bold text-[#0B0E23]">{formatCurrency(invoiceTotal)}</p>
-                        </div>
-                        <div>
-                          <p className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">Scheme</p>
-                          <p className="text-sm font-bold text-violet-700">{formatCurrency(schemeApplied ? parsedSchemeAmount : 0)}</p>
-                        </div>
-                        <div>
-                          <p className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">Cash + Outstanding</p>
-                          <p className="text-sm font-bold text-amber-700">
-                            {formatCurrency(Math.max(0, Number((invoiceTotal - (schemeApplied ? parsedSchemeAmount : 0)).toFixed(2))))}
-                          </p>
-                        </div>
-                      </div>
-                      {schemeApplied && (
-                        <p className="text-[11px] font-medium text-violet-800">
-                          Paying now (cash): {formatCurrency(cashNow)} · Outstanding after: {formatCurrency(schemeOutstanding)}.
-                          Scheme credit settles the invoice — it is not counted as cash.
-                        </p>
-                      )}
-                      {!schemePlusCashOk && (
-                        <p className="text-[11px] font-medium text-red-600">
-                          Scheme amount cannot exceed the available balance, and scheme + cash cannot
-                          exceed the invoice total.
-                        </p>
-                      )}
-                    </>
+                  <ul className="rounded-xl border border-violet-200 bg-white divide-y divide-violet-100">
+                    {schemeOptions.map((sc) => {
+                      const raw = schemeAmounts[sc.enrollmentId] ?? '';
+                      const amt = parseFloat(raw);
+                      const used = !isNaN(amt) && amt > 0 ? amt : 0;
+                      const over = used > sc.availableBalance + 0.005;
+                      return (
+                        <li key={sc.enrollmentId} className="p-3 space-y-2">
+                          <div className="flex items-start justify-between gap-3">
+                            <div className="min-w-0">
+                              <p className="text-xs font-bold text-[#0B0E23] truncate">{sc.schemeName}</p>
+                              <p className="text-[11px] text-slate-500 font-medium truncate">
+                                {sc.enrollmentNumber} · Available {formatCurrency(sc.availableBalance)}
+                              </p>
+                            </div>
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              onClick={() =>
+                                setSchemeAmounts((prev) => ({
+                                  ...prev,
+                                  // Offer the most this scheme can usefully cover: its own
+                                  // balance, capped by what the invoice still needs.
+                                  [sc.enrollmentId]: String(
+                                    Math.max(
+                                      0,
+                                      Math.min(
+                                        sc.availableBalance,
+                                        Number((invoiceTotal - (parsedSchemeAmount - used)).toFixed(2))
+                                      )
+                                    )
+                                  ),
+                                }))
+                              }
+                            >
+                              Use max
+                            </Button>
+                          </div>
+                          <div className="grid grid-cols-2 gap-2 items-center">
+                            <Input
+                              type="number"
+                              step="0.01"
+                              value={raw}
+                              onChange={(e) =>
+                                setSchemeAmounts((prev) => ({ ...prev, [sc.enrollmentId]: e.target.value }))
+                              }
+                              placeholder="0.00"
+                            />
+                            <p className="text-[11px] font-medium text-slate-600 text-right">
+                              Remaining after:{' '}
+                              <span className="font-mono font-bold">
+                                {formatCurrency(Math.max(0, Number((sc.availableBalance - used).toFixed(2))))}
+                              </span>
+                            </p>
+                          </div>
+                          {over && (
+                            <p className="text-[11px] font-medium text-red-600">
+                              Exceeds this scheme&apos;s available balance.
+                            </p>
+                          )}
+                        </li>
+                      );
+                    })}
+                  </ul>
+
+                  <div className="grid grid-cols-3 gap-2 pt-1 text-center">
+                    <div>
+                      <p className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">Invoice</p>
+                      <p className="text-sm font-bold text-[#0B0E23]">{formatCurrency(invoiceTotal)}</p>
+                    </div>
+                    <div>
+                      <p className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">
+                        Scheme{schemeLines.length > 1 ? ` (${schemeLines.length})` : ''}
+                      </p>
+                      <p className="text-sm font-bold text-violet-700">{formatCurrency(parsedSchemeAmount)}</p>
+                    </div>
+                    <div>
+                      <p className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">Cash + Outstanding</p>
+                      <p className="text-sm font-bold text-amber-700">
+                        {formatCurrency(Math.max(0, Number((invoiceTotal - parsedSchemeAmount).toFixed(2))))}
+                      </p>
+                    </div>
+                  </div>
+
+                  {schemeApplied && (
+                    <p className="text-[11px] font-medium text-violet-800">
+                      Paying now (cash): {formatCurrency(cashNow)} · Outstanding after: {formatCurrency(schemeOutstanding)}.
+                      Scheme credit settles the invoice — it is not counted as cash.
+                    </p>
+                  )}
+                  {!schemePlusCashOk && (
+                    <p className="text-[11px] font-medium text-red-600">
+                      Each scheme amount must stay within its own balance, and scheme + cash cannot
+                      exceed the invoice total.
+                    </p>
                   )}
                 </>
               )}

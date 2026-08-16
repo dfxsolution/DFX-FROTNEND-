@@ -129,6 +129,32 @@ export const enrollmentService = {
     return mapBalance(res.data.balance);
   },
 
+  /** Settles one invoice from SEVERAL scheme balances in a single backend
+   *  transaction. Never chain redeemScheme calls for a multi-scheme bill: this
+   *  endpoint validates every enrollment first and rolls the whole settlement
+   *  back if any one of them fails. */
+  async redeemSchemes(
+    saleId: string,
+    items: { enrollmentId: string; amount: number }[]
+  ): Promise<MultiSchemeSettlement> {
+    const res = await apiClient.post<{ settlement: BackendMultiSchemeSettlement }>(
+      `/billing/sales/${saleId}/redeem-schemes`,
+      { items: items.map((i) => ({ enrollment_id: i.enrollmentId, amount: i.amount })) },
+      { auth: true }
+    );
+    const d = res.data.settlement;
+    return {
+      saleId: d.sale_id,
+      invoiceNumber: d.invoice_number,
+      totalRedeemed: d.total_redeemed,
+      saleFinalAmount: d.sale_final_amount,
+      saleAmountPaid: d.sale_amount_paid,
+      saleOutstanding: d.sale_outstanding,
+      salePaymentStatus: d.sale_payment_status,
+      balances: d.balances.map(mapBalance),
+    };
+  },
+
   /** Applies scheme credit to an existing invoice. The backend validates the
    *  amount against both the available balance and the invoice's outstanding. */
   async redeemScheme(
@@ -195,6 +221,29 @@ export interface SchemeRedemption {
   redeemedAt: string;
   recordedBy: string;
   recordedByName: string | null;
+}
+
+interface BackendMultiSchemeSettlement {
+  sale_id: string;
+  invoice_number: string;
+  total_redeemed: number;
+  sale_final_amount: number;
+  sale_amount_paid: number;
+  sale_outstanding: number;
+  sale_payment_status: string;
+  balances: BackendEnrollmentBalance[];
+}
+
+/** Post-settlement position after a multi-scheme redemption. */
+export interface MultiSchemeSettlement {
+  saleId: string;
+  invoiceNumber: string;
+  totalRedeemed: number;
+  saleFinalAmount: number;
+  saleAmountPaid: number;
+  saleOutstanding: number;
+  salePaymentStatus: string;
+  balances: EnrollmentBalance[];
 }
 
 export interface EnrollmentBalance {
