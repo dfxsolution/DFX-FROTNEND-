@@ -15,8 +15,13 @@ import {
   ChevronRight,
   Coins,
   ShieldCheck,
+  Wallet,
+  Receipt,
+  RotateCcw,
+  BookOpen,
+  IdCard,
 } from 'lucide-react';
-import { customerService, AdminCustomerListItem, AdminCustomerDetail } from '@/services/customerService';
+import { customerService, AdminCustomerListItem, CustomerOverview } from '@/services/customerService';
 import { ApiError } from '@/lib/apiClient';
 
 const PAGE_SIZE = 20;
@@ -26,6 +31,44 @@ const KYC_BADGE_VARIANT: Record<string, 'success' | 'warn' | 'danger'> = {
   Pending: 'warn',
   Rejected: 'danger',
 };
+
+const formatMoney = (v: number) =>
+  `\u20B9${v.toLocaleString('en-IN', { maximumFractionDigits: 2 })}`;
+
+const formatDate = (v: string) => {
+  if (!v) return '—';
+  const d = new Date(v);
+  return isNaN(d.getTime()) ? v : d.toLocaleDateString('en-IN', { dateStyle: 'medium' });
+};
+
+/** Collapsible-free list block used by every Customer 360 section, so each
+ * section scrolls inside itself instead of stretching the dialog. */
+function Section({
+  icon,
+  title,
+  count,
+  children,
+}: {
+  icon: React.ReactNode;
+  title: string;
+  count: number;
+  children: React.ReactNode;
+}) {
+  return (
+    <div className="rounded-xl border border-slate-200 overflow-hidden">
+      <div className="flex items-center gap-2 px-3 py-2 bg-slate-50 border-b border-slate-200">
+        {icon}
+        <p className="text-[11px] font-bold uppercase tracking-wider text-slate-600">{title}</p>
+        <span className="ml-auto text-[10px] font-bold text-slate-400">{count}</span>
+      </div>
+      {count === 0 ? (
+        <p className="px-3 py-2.5 text-[11px] text-slate-500 font-medium">Nothing recorded.</p>
+      ) : (
+        <ul className="divide-y divide-slate-100 max-h-56 overflow-y-auto">{children}</ul>
+      )}
+    </div>
+  );
+}
 
 export default function AdminCustomersPage() {
   const [customers, setCustomers] = useState<AdminCustomerListItem[]>([]);
@@ -37,8 +80,10 @@ export default function AdminCustomersPage() {
   const [loadError, setLoadError] = useState('');
   const [search, setSearch] = useState('');
 
+  /* Customer 360 — one authoritative read; this screen renders what the
+   * backend composed and never recomputes a balance or a total. */
   const [detailId, setDetailId] = useState<string | null>(null);
-  const [detail, setDetail] = useState<AdminCustomerDetail | null>(null);
+  const [detail, setDetail] = useState<CustomerOverview | null>(null);
   const [detailLoading, setDetailLoading] = useState(false);
   const [detailError, setDetailError] = useState('');
 
@@ -70,7 +115,7 @@ export default function AdminCustomersPage() {
     setDetailError('');
     setDetailLoading(true);
     try {
-      const data = await customerService.getAdminCustomerDetail(id);
+      const data = await customerService.getCustomerOverview(id);
       setDetail(data);
     } catch (err) {
       setDetailError(err instanceof ApiError ? err.message : 'Could not load customer detail.');
@@ -100,7 +145,7 @@ export default function AdminCustomersPage() {
           <Input
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            placeholder="Search by name, email, or phone..."
+            placeholder="Search by customer code, name, email, or phone..."
             className="pl-10"
           />
         </div>
@@ -133,6 +178,7 @@ export default function AdminCustomersPage() {
                 <thead>
                   <tr className="bg-slate-50 border-b border-slate-200 text-slate-500 font-bold uppercase text-[10px] tracking-wider">
                     <th className="p-4">Customer</th>
+                    <th className="p-4">Customer Code</th>
                     <th className="p-4">Contact</th>
                     <th className="p-4 text-center">KYC Status</th>
                     <th className="p-4">Member Since</th>
@@ -151,6 +197,11 @@ export default function AdminCustomersPage() {
                           {c.name.charAt(0).toUpperCase()}
                         </div>
                         {c.name}
+                      </td>
+                      <td className="p-4">
+                        <span className="font-mono text-[11px] font-bold text-slate-600 whitespace-nowrap">
+                          {c.customerCode || '—'}
+                        </span>
                       </td>
                       <td className="p-4 text-[11px] text-slate-500">
                         <div>{c.email || '—'}</div>
@@ -190,55 +241,210 @@ export default function AdminCustomersPage() {
         </>
       )}
 
-      {/* CUSTOMER DETAIL DIALOG */}
-      <Dialog isOpen={!!detailId} onClose={() => setDetailId(null)} title="Customer Detail" maxWidth="max-w-md">
-        {detailLoading && <Skeleton className="h-40 w-full" />}
+      {/* CUSTOMER 360 */}
+      <Dialog
+        isOpen={!!detailId}
+        onClose={() => setDetailId(null)}
+        title="Customer 360"
+        maxWidth="max-w-3xl"
+      >
+        {detailLoading && <Skeleton className="h-64 w-full" />}
         {!detailLoading && detailError && <p className="text-xs font-medium text-red-700">{detailError}</p>}
+
         {!detailLoading && !detailError && detail && (
-          <div className="space-y-4 text-xs">
-            <div className="flex items-center gap-3">
-              <div className="w-12 h-12 rounded-2xl bg-gold/15 text-gold-dark font-bold text-lg flex items-center justify-center border border-gold/30">
-                {detail.name.charAt(0).toUpperCase()}
+          <div className="space-y-4 text-xs max-h-[70vh] overflow-y-auto pr-1">
+            {/* PROFILE */}
+            <div className="flex flex-col sm:flex-row sm:items-center gap-3">
+              <div className="w-12 h-12 rounded-2xl bg-gold/15 text-gold-dark font-bold text-lg flex items-center justify-center border border-gold/30 shrink-0">
+                {detail.profile.name.charAt(0).toUpperCase()}
               </div>
-              <div>
-                <div className="font-bold text-sm text-[#0B0E23]">{detail.name}</div>
-                <div className="text-slate-400">{detail.email || detail.phone}</div>
+              <div className="min-w-0 flex-1">
+                <div className="font-bold text-sm text-[#0B0E23] truncate">{detail.profile.name}</div>
+                <div className="flex flex-wrap items-center gap-x-2 gap-y-1 mt-1">
+                  <span className="inline-flex items-center gap-1 font-mono text-[11px] font-bold text-slate-600">
+                    <IdCard className="w-3 h-3" /> {detail.profile.customerCode || 'No code'}
+                  </span>
+                  <Badge variant="gold" className="text-[10px]">{detail.profile.customerType}</Badge>
+                  <Badge variant={detail.profile.isActive ? 'success' : 'danger'} dot className="text-[10px]">
+                    {detail.profile.isActive ? 'Active' : 'Inactive'}
+                  </Badge>
+                </div>
+                <div className="text-slate-400 text-[11px] mt-1 truncate">
+                  {detail.profile.phone || '—'}
+                  {detail.profile.email ? ` · ${detail.profile.email}` : ''}
+                </div>
               </div>
             </div>
 
-            <div className="grid grid-cols-2 gap-3">
+            {/* KYC + HEADLINE TOTALS */}
+            <div className="grid grid-cols-2 lg:grid-cols-4 gap-2">
               <div className="p-3 bg-slate-50 rounded-xl border border-slate-100">
                 <div className="flex items-center gap-1.5 text-slate-400 font-bold uppercase text-[10px] mb-1">
-                  <ShieldCheck className="w-3 h-3" /> KYC Status
+                  <ShieldCheck className="w-3 h-3" /> KYC
                 </div>
-                <Badge variant={KYC_BADGE_VARIANT[detail.kycStatus] ?? 'warn'} className="text-[10px]">
-                  {detail.kycStatus}
+                <Badge variant={KYC_BADGE_VARIANT[detail.kyc.status] ?? 'warn'} className="text-[10px]">
+                  {detail.kyc.status}
                 </Badge>
+                <div className="text-[10px] text-slate-400 mt-1">
+                  {detail.kyc.docType || 'No document'}
+                  {detail.kyc.documentCount > 0 ? ` · ${detail.kyc.documentCount} file(s)` : ''}
+                </div>
               </div>
               <div className="p-3 bg-slate-50 rounded-xl border border-slate-100">
                 <div className="flex items-center gap-1.5 text-slate-400 font-bold uppercase text-[10px] mb-1">
-                  <Coins className="w-3 h-3" /> Enrollments
+                  <Coins className="w-3 h-3" /> Schemes
                 </div>
-                <div className="font-bold text-[#0B0E23]">{detail.enrollmentCount}</div>
+                <div className="font-bold text-[#0B0E23]">{detail.totals.enrollmentCount}</div>
+                <div className="text-[10px] text-slate-400 mt-1">
+                  Balance {formatMoney(detail.totals.schemeAvailableBalance)}
+                </div>
+              </div>
+              <div className="p-3 bg-slate-50 rounded-xl border border-slate-100">
+                <div className="flex items-center gap-1.5 text-slate-400 font-bold uppercase text-[10px] mb-1">
+                  <Receipt className="w-3 h-3" /> Purchases
+                </div>
+                <div className="font-bold text-[#0B0E23]">{detail.totals.purchaseCount}</div>
+                <div className="text-[10px] text-slate-400 mt-1">
+                  {formatMoney(detail.totals.purchaseTotal)} billed
+                </div>
+              </div>
+              <div className="p-3 bg-slate-50 rounded-xl border border-slate-100">
+                <div className="flex items-center gap-1.5 text-slate-400 font-bold uppercase text-[10px] mb-1">
+                  <Wallet className="w-3 h-3" /> Outstanding
+                </div>
+                <div className="font-bold text-amber-700">{formatMoney(detail.totals.purchaseOutstanding)}</div>
+                <div className="text-[10px] text-slate-400 mt-1">
+                  Paid {formatMoney(detail.totals.purchasePaid)}
+                </div>
               </div>
             </div>
 
-            <div className="p-3 bg-slate-50 rounded-xl border border-slate-100">
-              <div className="text-slate-400 font-bold uppercase text-[10px] mb-1">Total Invested</div>
-              <div className="font-bold text-[#0B0E23] text-base">
-                ₹{detail.totalInvested.toLocaleString('en-IN', { maximumFractionDigits: 0 })}
-              </div>
-            </div>
+            {/* ENROLLMENTS */}
+            <Section icon={<Coins className="w-3.5 h-3.5 text-gold" />} title="Scheme Enrollments" count={detail.enrollments.length}>
+              {detail.enrollments.map((e) => (
+                <li key={e.id} className="px-3 py-2 flex flex-wrap items-center justify-between gap-2">
+                  <div className="min-w-0">
+                    <p className="font-bold text-[#0B0E23] truncate">{e.schemeName}</p>
+                    <p className="text-[11px] text-slate-500 truncate">
+                      {e.enrollmentNumber} · {e.status}
+                      {e.maturityDate ? ` · matures ${e.maturityDate}` : ''}
+                    </p>
+                  </div>
+                  <div className="text-right shrink-0">
+                    <p className="font-mono font-bold text-violet-700">{formatMoney(e.availableBalance)}</p>
+                    <p className="text-[10px] text-slate-400">
+                      Paid {formatMoney(e.totalPaid)} · Redeemed {formatMoney(e.totalRedeemed)}
+                    </p>
+                  </div>
+                </li>
+              ))}
+            </Section>
 
-            <div className="flex items-center justify-between text-[11px] text-slate-500">
-              <span>Member since {detail.memberSince || '—'}</span>
-              <Badge variant={detail.isActive ? 'success' : 'danger'} dot className="text-[10px]">
-                {detail.isActive ? 'Active' : 'Inactive'}
-              </Badge>
-            </div>
+            {/* CONTRIBUTIONS */}
+            <Section icon={<BookOpen className="w-3.5 h-3.5 text-gold" />} title="Contributions" count={detail.contributions.length}>
+              {detail.contributions.map((c) => (
+                <li key={c.id} className="px-3 py-2 flex items-center justify-between gap-3">
+                  <div className="min-w-0">
+                    <p className="font-mono font-bold text-emerald-700">{formatMoney(c.amount)}</p>
+                    <p className="text-[11px] text-slate-500 truncate">
+                      {formatDate(c.entryDate)}
+                      {c.description ? ` · ${c.description}` : ''}
+                    </p>
+                  </div>
+                  <span className="text-[10px] text-slate-400 font-semibold shrink-0">
+                    {c.entryNumber !== null ? `#${c.entryNumber}` : ''}
+                  </span>
+                </li>
+              ))}
+            </Section>
+
+            {/* REDEMPTIONS */}
+            <Section icon={<Wallet className="w-3.5 h-3.5 text-gold" />} title="Scheme Redemptions" count={detail.redemptions.length}>
+              {detail.redemptions.map((r) => {
+                // Negative = credit restored by a returned scheme-settled sale.
+                const restored = r.amount < 0;
+                return (
+                  <li key={r.id} className="px-3 py-2 flex items-center justify-between gap-3">
+                    <div className="min-w-0">
+                      <p className={`font-mono font-bold ${restored ? 'text-emerald-700' : 'text-violet-700'}`}>
+                        {restored ? '+' : '-'}{formatMoney(Math.abs(r.amount))}
+                      </p>
+                      <p className="text-[11px] text-slate-500 truncate">
+                        {restored ? 'Restored (return)' : 'Redeemed'} · {r.enrollmentNumber || '—'} · Invoice {r.invoiceNumber || '—'}
+                      </p>
+                    </div>
+                    <span className="text-[10px] text-slate-400 shrink-0">{formatDate(r.redeemedAt)}</span>
+                  </li>
+                );
+              })}
+            </Section>
+
+            {/* PURCHASES */}
+            <Section icon={<Receipt className="w-3.5 h-3.5 text-gold" />} title="Purchases" count={detail.purchases.length}>
+              {detail.purchases.map((pu) => (
+                <li key={pu.id} className="px-3 py-2 flex flex-wrap items-center justify-between gap-2">
+                  <div className="min-w-0">
+                    <p className="font-bold text-[#0B0E23] truncate">{pu.invoiceNumber}</p>
+                    <p className="text-[11px] text-slate-500 truncate">
+                      {pu.productName} · {formatDate(pu.saleTimestamp)}
+                    </p>
+                  </div>
+                  <div className="text-right shrink-0">
+                    <p className="font-mono font-bold text-[#0B0E23]">{formatMoney(pu.finalAmount)}</p>
+                    <p className="text-[10px] text-slate-400">
+                      {pu.saleStatus !== 'COMPLETED' ? pu.saleStatus : pu.paymentStatus}
+                      {pu.outstanding > 0 ? ` · due ${formatMoney(pu.outstanding)}` : ''}
+                    </p>
+                  </div>
+                </li>
+              ))}
+            </Section>
+
+            {/* PAYMENTS */}
+            <Section icon={<Wallet className="w-3.5 h-3.5 text-gold" />} title="Payments Collected" count={detail.payments.length}>
+              {detail.payments.map((pa) => (
+                <li key={pa.id} className="px-3 py-2 flex items-center justify-between gap-3">
+                  <div className="min-w-0">
+                    <p className="font-mono font-bold text-[#0B0E23]">{formatMoney(pa.amount)}</p>
+                    <p className="text-[11px] text-slate-500 truncate">
+                      Invoice {pa.invoiceNumber || '—'} · {pa.source.replace(/_/g, ' ')}
+                      {pa.paymentMethod ? ` · ${pa.paymentMethod}` : ''}
+                    </p>
+                  </div>
+                  <span className="text-[10px] text-slate-400 shrink-0">{pa.paymentDate || '—'}</span>
+                </li>
+              ))}
+            </Section>
+
+            {/* RETURNS */}
+            <Section icon={<RotateCcw className="w-3.5 h-3.5 text-gold" />} title="Returns" count={detail.returns.length}>
+              {detail.returns.map((r) => (
+                <li key={r.saleId} className="px-3 py-2 flex flex-wrap items-center justify-between gap-2">
+                  <div className="min-w-0">
+                    <p className="font-bold text-[#0B0E23] truncate">Invoice {r.invoiceNumber || '—'}</p>
+                    <p className="text-[11px] text-slate-500 truncate">
+                      {r.reason || '—'} · {r.inspectionOutcome || 'PENDING'}
+                    </p>
+                  </div>
+                  <div className="text-right shrink-0">
+                    <p className="font-mono font-bold text-red-600">{formatMoney(r.refundAmount)}</p>
+                    <p className="text-[10px] text-slate-400">
+                      {r.schemeRestored > 0 ? `Scheme restored ${formatMoney(r.schemeRestored)}` : ''}
+                      {r.writtenOffAmount > 0 ? ` · written off ${formatMoney(r.writtenOffAmount)}` : ''}
+                    </p>
+                  </div>
+                </li>
+              ))}
+            </Section>
+
+            <p className="text-[11px] text-slate-500">
+              Member since {detail.profile.memberSince || '—'}. Every figure above is read from the
+              billing, scheme and return ledgers — nothing on this screen is recalculated.
+            </p>
           </div>
         )}
       </Dialog>
+
     </div>
   );
 }

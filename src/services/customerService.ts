@@ -99,6 +99,7 @@ function mapTenantProfile(raw: BackendTenantProfile): TenantProfile {
 /** Shape of an item in the paginated GET /admin/customers list. */
 interface BackendAdminCustomerListItem {
   id: string;
+  customer_code: string | null;
   name: string;
   email: string | null;
   phone: string | null;
@@ -109,6 +110,9 @@ interface BackendAdminCustomerListItem {
 
 export interface AdminCustomerListItem {
   id: string;
+  /** Human-readable tenant-scoped code, e.g. DFX-CUST-000001. Backend
+   * generated and immutable; staff never type it in. */
+  customerCode: string;
   name: string;
   email: string;
   phone: string;
@@ -120,12 +124,235 @@ export interface AdminCustomerListItem {
 function mapAdminCustomerListItem(raw: BackendAdminCustomerListItem): AdminCustomerListItem {
   return {
     id: raw.id,
+    customerCode: raw.customer_code ?? '',
     name: raw.name,
     email: raw.email ?? '',
     phone: raw.phone ?? '',
     kycStatus: raw.kyc_status,
     memberSince: raw.member_since ?? '',
     isActive: raw.is_active,
+  };
+}
+
+/* --- Customer 360 (Phase 1) -------------------------------------------------
+ * Read-only composition served by GET /admin/customers/{id}/overview. Every
+ * money figure below is produced by the backend authoritative services; this
+ * layer maps names only and must never compute a balance or a total. */
+
+interface BackendCustomerOverview {
+  profile: {
+    id: string;
+    customer_code: string | null;
+    name: string;
+    email: string | null;
+    phone: string | null;
+    avatar_url: string | null;
+    is_active: boolean;
+    member_since: string | null;
+    created_at: string | null;
+    customer_type: string;
+  };
+  kyc: {
+    status: string;
+    doc_type: string | null;
+    record_status: string | null;
+    verified_at: string | null;
+    rejection_reason: string | null;
+    document_count: number;
+  };
+  totals: {
+    enrollment_count: number;
+    scheme_total_paid: number;
+    scheme_total_redeemed: number;
+    scheme_available_balance: number;
+    purchase_count: number;
+    purchase_total: number;
+    purchase_paid: number;
+    purchase_outstanding: number;
+    return_count: number;
+    refund_total: number;
+  };
+  enrollments: Array<{
+    id: string; enrollment_number: string; scheme_name: string; status: string;
+    joined_date: string | null; maturity_date: string | null;
+    total_paid: number; total_redeemed: number; available_balance: number; can_redeem: boolean;
+  }>;
+  contributions: Array<{
+    id: string; enrollment_id: string; entry_number: number | null;
+    entry_date: string | null; amount: number; description: string | null;
+  }>;
+  redemptions: Array<{
+    id: string; enrollment_id: string; enrollment_number: string | null;
+    invoice_number: string | null; amount: number; redeemed_at: string | null;
+  }>;
+  purchases: Array<{
+    id: string; invoice_number: string; product_name: string; product_code: string | null;
+    sale_timestamp: string | null; final_amount: number; amount_paid: number;
+    amount_refunded: number; outstanding: number; payment_status: string; sale_status: string;
+  }>;
+  payments: Array<{
+    id: string; sale_id: string; invoice_number: string | null; amount: number;
+    payment_date: string | null; payment_method: string | null; source: string;
+    reference_no: string | null;
+  }>;
+  returns: Array<{
+    sale_id: string; invoice_number: string | null; reason: string | null;
+    refund_amount: number; written_off_amount: number; scheme_restored: number;
+    inspection_outcome: string | null; returned_at: string | null;
+  }>;
+}
+
+export interface CustomerOverviewProfile {
+  id: string; customerCode: string; name: string; email: string; phone: string;
+  avatarUrl: string | null; isActive: boolean; memberSince: string;
+  createdAt: string | null;
+  /** WALK-IN | SCHEME CUSTOMER | HYBRID - derived by the backend from the
+   * customer own enrollments and sales, never a stored column. */
+  customerType: string;
+}
+export interface CustomerOverviewKyc {
+  status: string; docType: string; recordStatus: string; verifiedAt: string | null;
+  rejectionReason: string; documentCount: number;
+}
+export interface CustomerOverviewTotals {
+  enrollmentCount: number; schemeTotalPaid: number; schemeTotalRedeemed: number;
+  schemeAvailableBalance: number; purchaseCount: number; purchaseTotal: number;
+  purchasePaid: number; purchaseOutstanding: number; returnCount: number; refundTotal: number;
+}
+export interface CustomerOverviewEnrollment {
+  id: string; enrollmentNumber: string; schemeName: string; status: string;
+  joinedDate: string; maturityDate: string; totalPaid: number; totalRedeemed: number;
+  availableBalance: number; canRedeem: boolean;
+}
+export interface CustomerOverviewContribution {
+  id: string; enrollmentId: string; entryNumber: number | null; entryDate: string;
+  amount: number; description: string;
+}
+export interface CustomerOverviewRedemption {
+  id: string; enrollmentId: string; enrollmentNumber: string; invoiceNumber: string;
+  amount: number; redeemedAt: string;
+}
+export interface CustomerOverviewPurchase {
+  id: string; invoiceNumber: string; productName: string; productCode: string;
+  saleTimestamp: string; finalAmount: number; amountPaid: number; amountRefunded: number;
+  outstanding: number; paymentStatus: string; saleStatus: string;
+}
+export interface CustomerOverviewPayment {
+  id: string; saleId: string; invoiceNumber: string; amount: number; paymentDate: string;
+  paymentMethod: string; source: string; referenceNo: string;
+}
+export interface CustomerOverviewReturn {
+  saleId: string; invoiceNumber: string; reason: string; refundAmount: number;
+  writtenOffAmount: number; schemeRestored: number; inspectionOutcome: string;
+  returnedAt: string;
+}
+export interface CustomerOverview {
+  profile: CustomerOverviewProfile;
+  kyc: CustomerOverviewKyc;
+  totals: CustomerOverviewTotals;
+  enrollments: CustomerOverviewEnrollment[];
+  contributions: CustomerOverviewContribution[];
+  redemptions: CustomerOverviewRedemption[];
+  purchases: CustomerOverviewPurchase[];
+  payments: CustomerOverviewPayment[];
+  returns: CustomerOverviewReturn[];
+}
+
+function mapCustomerOverview(raw: BackendCustomerOverview): CustomerOverview {
+  return {
+    profile: {
+      id: raw.profile.id,
+      customerCode: raw.profile.customer_code ?? '',
+      name: raw.profile.name,
+      email: raw.profile.email ?? '',
+      phone: raw.profile.phone ?? '',
+      avatarUrl: raw.profile.avatar_url,
+      isActive: raw.profile.is_active,
+      memberSince: raw.profile.member_since ?? '',
+      createdAt: raw.profile.created_at,
+      customerType: raw.profile.customer_type,
+    },
+    kyc: {
+      status: raw.kyc.status,
+      docType: raw.kyc.doc_type ?? '',
+      recordStatus: raw.kyc.record_status ?? '',
+      verifiedAt: raw.kyc.verified_at,
+      rejectionReason: raw.kyc.rejection_reason ?? '',
+      documentCount: raw.kyc.document_count,
+    },
+    totals: {
+      enrollmentCount: raw.totals.enrollment_count,
+      schemeTotalPaid: raw.totals.scheme_total_paid,
+      schemeTotalRedeemed: raw.totals.scheme_total_redeemed,
+      schemeAvailableBalance: raw.totals.scheme_available_balance,
+      purchaseCount: raw.totals.purchase_count,
+      purchaseTotal: raw.totals.purchase_total,
+      purchasePaid: raw.totals.purchase_paid,
+      purchaseOutstanding: raw.totals.purchase_outstanding,
+      returnCount: raw.totals.return_count,
+      refundTotal: raw.totals.refund_total,
+    },
+    enrollments: raw.enrollments.map((e) => ({
+      id: e.id,
+      enrollmentNumber: e.enrollment_number,
+      schemeName: e.scheme_name,
+      status: e.status,
+      joinedDate: e.joined_date ?? '',
+      maturityDate: e.maturity_date ?? '',
+      totalPaid: e.total_paid,
+      totalRedeemed: e.total_redeemed,
+      availableBalance: e.available_balance,
+      canRedeem: e.can_redeem,
+    })),
+    contributions: raw.contributions.map((c) => ({
+      id: c.id,
+      enrollmentId: c.enrollment_id,
+      entryNumber: c.entry_number,
+      entryDate: c.entry_date ?? '',
+      amount: c.amount,
+      description: c.description ?? '',
+    })),
+    redemptions: raw.redemptions.map((r) => ({
+      id: r.id,
+      enrollmentId: r.enrollment_id,
+      enrollmentNumber: r.enrollment_number ?? '',
+      invoiceNumber: r.invoice_number ?? '',
+      amount: r.amount,
+      redeemedAt: r.redeemed_at ?? '',
+    })),
+    purchases: raw.purchases.map((p) => ({
+      id: p.id,
+      invoiceNumber: p.invoice_number,
+      productName: p.product_name,
+      productCode: p.product_code ?? '',
+      saleTimestamp: p.sale_timestamp ?? '',
+      finalAmount: p.final_amount,
+      amountPaid: p.amount_paid,
+      amountRefunded: p.amount_refunded,
+      outstanding: p.outstanding,
+      paymentStatus: p.payment_status,
+      saleStatus: p.sale_status,
+    })),
+    payments: raw.payments.map((p) => ({
+      id: p.id,
+      saleId: p.sale_id,
+      invoiceNumber: p.invoice_number ?? '',
+      amount: p.amount,
+      paymentDate: p.payment_date ?? '',
+      paymentMethod: p.payment_method ?? '',
+      source: p.source,
+      referenceNo: p.reference_no ?? '',
+    })),
+    returns: raw.returns.map((r) => ({
+      saleId: r.sale_id,
+      invoiceNumber: r.invoice_number ?? '',
+      reason: r.reason ?? '',
+      refundAmount: r.refund_amount,
+      writtenOffAmount: r.written_off_amount,
+      schemeRestored: r.scheme_restored,
+      inspectionOutcome: r.inspection_outcome ?? '',
+      returnedAt: r.returned_at ?? '',
+    })),
   };
 }
 
@@ -499,6 +726,15 @@ export const customerService = {
       customers: res.data.customers.map(mapAdminCustomerListItem),
       pagination: mapAdminCustomerPagination(res.meta.pagination),
     };
+  },
+
+  /** GET /api/v1/admin/customers/{id}/overview - Customer 360. */
+  async getCustomerOverview(id: string): Promise<CustomerOverview> {
+    const res = await apiClient.get<{ overview: BackendCustomerOverview }>(
+      `/admin/customers/${id}/overview`,
+      { auth: true }
+    );
+    return mapCustomerOverview(res.data.overview);
   },
 
   /** GET /api/v1/admin/customers/{id} */

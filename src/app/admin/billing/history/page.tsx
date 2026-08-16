@@ -416,7 +416,12 @@ export default function SalesHistoryPage() {
                       <span className="block text-[11px] font-semibold text-[#0B0E23]">{sale.productName}</span>
                     </td>
                     <td className="px-4 py-3 text-xs font-medium text-slate-600">{sale.vendorName || '—'}</td>
-                    <td className="px-4 py-3 text-xs font-medium text-slate-600">{sale.customerName || sale.customerId || '—'}</td>
+                    <td className="px-4 py-3 text-xs font-medium text-slate-600">
+                      <div className="truncate">{sale.customerName || 'Walk-in'}</div>
+                      {sale.customerCode && (
+                        <div className="font-mono text-[10px] text-slate-400 whitespace-nowrap">{sale.customerCode}</div>
+                      )}
+                    </td>
                     <td className="px-4 py-3 text-xs font-bold text-gold-dark font-mono">{formatCurrency(sale.finalAmount)}</td>
                     <td className="px-4 py-3 text-xs font-mono font-bold text-emerald-700">{formatCurrency(sale.amountPaid)}</td>
                     <td className="px-4 py-3 text-xs font-mono font-bold">
@@ -466,7 +471,10 @@ export default function SalesHistoryPage() {
                 </p>
               </div>
               <div className="text-right">
-                <p className="text-slate-400 font-semibold">{selected.customerName || selected.customerId || 'Walk-in'}</p>
+                <p className="text-slate-400 font-semibold">
+                  {selected.customerName || 'Walk-in'}
+                  {selected.customerCode ? ` · ${selected.customerCode}` : ''}
+                </p>
                 <p className="text-slate-400">{new Date(selected.saleTimestamp).toLocaleDateString('en-IN')}</p>
               </div>
             </div>

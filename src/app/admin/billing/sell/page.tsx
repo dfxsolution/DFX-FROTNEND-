@@ -660,7 +660,7 @@ export default function NewSalePage() {
                           >
                             <span className="block text-xs font-bold text-[#0B0E23] truncate">{c.name}</span>
                             <span className="block text-[10px] text-slate-500 font-medium truncate">
-                              {[c.phone, c.email].filter(Boolean).join(' · ') || '—'}
+                              {[c.customerCode, c.phone, c.email].filter(Boolean).join(' · ') || '—'}
                             </span>
                           </button>
                         ))

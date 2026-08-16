@@ -480,6 +480,7 @@ interface BackendSale extends BackendPriceBreakdown {
   invoice_number: string;
   inventory_item_id: string;
   customer_id: string | null;
+  customer_code: string | null;
   customer_name: string | null;
   customer_phone: string | null;
   product_code: string;
@@ -507,6 +508,9 @@ export interface Sale extends PriceBreakdown {
   invoiceNumber: string;
   inventoryItemId: string;
   customerId: string | null;
+  /** Live customer code of the linked customer (blank for a walk-in). Read
+   * from the customer record by the backend, not stored on the sale. */
+  customerCode: string;
   customerName: string | null;
   customerPhone: string | null;
   productCode: string;
@@ -538,6 +542,7 @@ function mapSale(raw: BackendSale): Sale {
     invoiceNumber: raw.invoice_number,
     inventoryItemId: raw.inventory_item_id,
     customerId: raw.customer_id,
+    customerCode: raw.customer_code ?? '',
     customerName: raw.customer_name,
     customerPhone: raw.customer_phone,
     productCode: raw.product_code,
