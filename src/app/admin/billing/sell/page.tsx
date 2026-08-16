@@ -20,6 +20,7 @@ import { InvoiceActions } from '../_components/InvoiceActions';
 import { useTenant } from '@/hooks/useTenant';
 import { useAuth } from '@/hooks/useAuth';
 import { loadBillDraft, saveBillDraft, clearBillDraft, BillDraft } from '@/lib/billDraft';
+import { enrollmentService, EnrollmentBalance } from '@/services/enrollmentService';
 import { customerService, AdminCustomerListItem } from '@/services/customerService';
 
 type Stage = 'scan' | 'loading' | 'review' | 'success';
@@ -49,6 +50,14 @@ export default function NewSalePage() {
   // Only meaningful for PARTIAL — the amount actually handed over at the
   // counter. A PARTIAL bill must record a real collection, not just the label.
   const [initialPayment, setInitialPayment] = useState('');
+
+  /* Scheme redemption toward this sale. Balances are backend-derived; this
+   * screen never computes scheme money. A redemption is applied only if the
+   * Admin explicitly picks an enrollment and an amount. */
+  const [schemeOptions, setSchemeOptions] = useState<EnrollmentBalance[]>([]);
+  const [schemeLoading, setSchemeLoading] = useState(false);
+  const [useSchemeId, setUseSchemeId] = useState('');
+  const [schemeAmount, setSchemeAmount] = useState('');
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [completing, setCompleting] = useState(false);
   const [completeError, setCompleteError] = useState('');
@@ -104,7 +113,33 @@ export default function NewSalePage() {
     setCustomerId('');
     setCustomerQuery('');
     setCustomerResults([]);
+    setSchemeOptions([]);
+    setUseSchemeId('');
+    setSchemeAmount('');
   };
+
+  /* Load the selected customer's redeemable scheme balances. Filtered to this
+   * customer client-side (no by-customer endpoint), then each balance is fetched
+   * from the authoritative backend. Awareness only until the Admin chooses to
+   * use one. */
+  useEffect(() => {
+    if (!customerId) { setSchemeOptions([]); setUseSchemeId(''); setSchemeAmount(''); return; }
+    let cancelled = false;
+    setSchemeLoading(true);
+    (async () => {
+      try {
+        const all = await enrollmentService.getAdminEnrollments();
+        const mine = all.filter((e) => e.customerId === customerId && e.status !== 'CANCELLED');
+        const balances = await Promise.all(mine.map((e) => enrollmentService.getEnrollmentBalance(e.id)));
+        if (!cancelled) setSchemeOptions(balances.filter((b) => b.canRedeem && b.availableBalance > 0));
+      } catch {
+        if (!cancelled) setSchemeOptions([]);
+      } finally {
+        if (!cancelled) setSchemeLoading(false);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [customerId]);
 
   const runScan = async (rawCode: string) => {
     const trimmed = rawCode.trim();
@@ -222,6 +257,9 @@ export default function NewSalePage() {
     lastQuoteKey.current = '';
     clearBillDraft(user?.tenantId, user?.id);
     setPendingDraft(null);
+    setSchemeOptions([]);
+    setUseSchemeId('');
+    setSchemeAmount('');
     setStage('scan');
     setCode('');
     setQuote(null);
@@ -344,7 +382,29 @@ export default function NewSalePage() {
     parsedInitialPayment > 0 &&
     parsedInitialPayment < invoiceTotal;
   const partialAmountOk = paymentStatus !== 'PARTIAL' || initialPaymentValid;
-  const canConfirm = customerIdentified && partialAmountOk;
+
+  /* Scheme application maths — all bounded, backend re-validates. */
+  const selectedScheme = schemeOptions.find((sc) => sc.enrollmentId === useSchemeId) || null;
+  const parsedSchemeAmount = parseFloat(schemeAmount);
+  const schemeApplied =
+    !!selectedScheme && !isNaN(parsedSchemeAmount) && parsedSchemeAmount > 0;
+  // Cash the customer pays now (the non-scheme side), from the existing payment
+  // controls: PAID means cash settles whatever scheme does not.
+  const cashNow = schemeApplied
+    ? (paymentStatus === 'PAID'
+        ? Math.max(0, Number((invoiceTotal - parsedSchemeAmount).toFixed(2)))
+        : paymentStatus === 'PARTIAL'
+          ? (initialPaymentValid ? parsedInitialPayment : 0)
+          : 0)
+    : 0;
+  const schemePlusCashOk =
+    !schemeApplied ||
+    (parsedSchemeAmount <= (selectedScheme?.availableBalance ?? 0) + 0.005 &&
+     Number((parsedSchemeAmount + cashNow).toFixed(2)) <= invoiceTotal + 0.005);
+  const schemeOutstanding = schemeApplied
+    ? Math.max(0, Number((invoiceTotal - parsedSchemeAmount - cashNow).toFixed(2)))
+    : 0;
+  const canConfirm = customerIdentified && partialAmountOk && schemePlusCashOk;
 
   const handleCompleteSale = async () => {
     if (!quote) return;
@@ -352,7 +412,18 @@ export default function NewSalePage() {
     setCompleting(true);
     try {
       const parsedPrice = parseFloat(customerPrice);
-      const sale = await billingService.createSale({
+      // With a scheme redemption the sale is created for the CASH side first
+      // (never PAID — that would zero the outstanding the scheme must settle),
+      // then the scheme is redeemed against the created invoice. Backend
+      // re-validates both and stays authoritative.
+      const createStatus: PaymentStatus = schemeApplied
+        ? (cashNow > 0 ? 'PARTIAL' : 'PENDING')
+        : paymentStatus;
+      const createInitial = schemeApplied
+        ? (cashNow > 0 ? cashNow : undefined)
+        : (paymentStatus === 'PARTIAL' ? parsedInitialPayment : undefined);
+
+      let sale = await billingService.createSale({
         productCode: quote.inventoryItem.productCode,
         customerId: customerId.trim() || undefined,
         customerName: customerName.trim() || undefined,
@@ -363,9 +434,18 @@ export default function NewSalePage() {
         wastageValue: num(wastageValue),
         goldProfitPercent: num(goldProfitPct),
         paymentMethod,
-        paymentStatus,
-        initialPaymentAmount: paymentStatus === 'PARTIAL' ? parsedInitialPayment : undefined,
+        paymentStatus: createStatus,
+        initialPaymentAmount: createInitial,
       });
+
+      if (schemeApplied && selectedScheme) {
+        // Redeem the customer's own scheme balance against this invoice. If this
+        // step fails the sale already exists (cash only) and the draft is kept;
+        // the Admin can retry redemption from the enrollment screen.
+        await enrollmentService.redeemScheme(selectedScheme.enrollmentId, sale.id, parsedSchemeAmount);
+        sale = await billingService.getSale(sale.id);
+      }
+
       setCompletedSale(sale);
       setConfirmOpen(false);
       /* Saved for real — the draft has served its purpose. A failed save falls
@@ -599,6 +679,80 @@ export default function NewSalePage() {
               </Select>
             </div>
           </div>
+
+          {/* Scheme balance — shown only for an existing customer who has
+            * redeemable scheme credit. Awareness + explicit opt-in; the Admin
+            * chooses whether and how much to apply. Never auto-redeemed. */}
+          {customerId && (schemeLoading || schemeOptions.length > 0) && (
+            <div className="space-y-2 bg-violet-50/60 border border-violet-200 rounded-xl p-4">
+              <label className="text-[10px] font-bold text-violet-800 uppercase tracking-wider block">
+                Customer Scheme Credit
+              </label>
+              {schemeLoading ? (
+                <p className="text-[11px] text-slate-500 font-medium">Loading scheme balance…</p>
+              ) : (
+                <>
+                  <Select
+                    value={useSchemeId}
+                    onChange={(e) => {
+                      const id = e.target.value;
+                      setUseSchemeId(id);
+                      const sc = schemeOptions.find((o) => o.enrollmentId === id);
+                      // Default to the lower of the balance and the invoice total.
+                      setSchemeAmount(sc ? String(Math.min(sc.availableBalance, invoiceTotal)) : '');
+                    }}
+                  >
+                    <option value="">Do not use scheme credit</option>
+                    {schemeOptions.map((sc) => (
+                      <option key={sc.enrollmentId} value={sc.enrollmentId}>
+                        {sc.schemeName} · Available {formatCurrency(sc.availableBalance)}
+                      </option>
+                    ))}
+                  </Select>
+
+                  {selectedScheme && (
+                    <>
+                      <Input
+                        type="number"
+                        step="0.01"
+                        value={schemeAmount}
+                        onChange={(e) => setSchemeAmount(e.target.value)}
+                        placeholder={`Max ${Math.min(selectedScheme.availableBalance, invoiceTotal)}`}
+                      />
+                      <div className="grid grid-cols-3 gap-2 pt-1 text-center">
+                        <div>
+                          <p className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">Invoice</p>
+                          <p className="text-sm font-bold text-[#0B0E23]">{formatCurrency(invoiceTotal)}</p>
+                        </div>
+                        <div>
+                          <p className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">Scheme</p>
+                          <p className="text-sm font-bold text-violet-700">{formatCurrency(schemeApplied ? parsedSchemeAmount : 0)}</p>
+                        </div>
+                        <div>
+                          <p className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">Cash + Outstanding</p>
+                          <p className="text-sm font-bold text-amber-700">
+                            {formatCurrency(Math.max(0, Number((invoiceTotal - (schemeApplied ? parsedSchemeAmount : 0)).toFixed(2))))}
+                          </p>
+                        </div>
+                      </div>
+                      {schemeApplied && (
+                        <p className="text-[11px] font-medium text-violet-800">
+                          Paying now (cash): {formatCurrency(cashNow)} · Outstanding after: {formatCurrency(schemeOutstanding)}.
+                          Scheme credit settles the invoice — it is not counted as cash.
+                        </p>
+                      )}
+                      {!schemePlusCashOk && (
+                        <p className="text-[11px] font-medium text-red-600">
+                          Scheme amount cannot exceed the available balance, and scheme + cash cannot
+                          exceed the invoice total.
+                        </p>
+                      )}
+                    </>
+                  )}
+                </>
+              )}
+            </div>
+          )}
 
           {paymentStatus === 'PARTIAL' && (
             <div className="space-y-2 bg-amber-50/60 border border-amber-200 rounded-xl p-4">
