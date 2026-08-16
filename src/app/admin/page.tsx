@@ -11,6 +11,7 @@ import {
   Users,
   Coins,
   CreditCard,
+  Wallet,
   Download,
   ArrowUpRight,
   ArrowDownRight,
@@ -660,13 +661,23 @@ function BillingSummarySection({
   const { today, thisMonth, todayGoldRate24k, recentSales, selectedPeriod, selectedPeriodLabel } = summary;
   const hasToday = today.billCount > 0;
 
+  // Every figure is backend-authoritative (Phase F/G). Sales is what was sold;
+  // Cash is money actually collected; Scheme is credit settlement (never cash);
+  // Outstanding is still receivable. Kept as distinct cards on purpose.
   const cards = [
     { label: "Today's Sales", val: formatCurrency(today.totalSales), icon: Receipt, color: 'text-blue-600 bg-blue-50 border-blue-200' },
-    { label: "Today's Profit", val: today.totalProfit !== null ? `🟢 ${formatCurrency(today.totalProfit)}` : '—', icon: TrendingUp, color: 'text-emerald-600 bg-emerald-50 border-emerald-200' },
-    { label: "Today's Loss", val: today.totalLoss !== null ? `🔴 ${formatCurrency(today.totalLoss)}` : '—', icon: TrendingUp, color: 'text-red-600 bg-red-50 border-red-200' },
-    { label: "Today's Bills", val: String(today.billCount), icon: PackageCheck, color: 'text-amber-600 bg-amber-50 border-amber-200' },
-    { label: 'Items Sold', val: String(today.itemsSold), icon: ShoppingBag, color: 'text-teal-600 bg-teal-50 border-teal-200' },
+    { label: 'Cash Collected', val: formatCurrency(today.cashCollected), icon: CreditCard, color: 'text-emerald-600 bg-emerald-50 border-emerald-200' },
+    { label: 'Scheme Redemption', val: formatCurrency(today.schemeRedemption), icon: Gem, color: 'text-violet-600 bg-violet-50 border-violet-200' },
+    { label: 'Outstanding', val: formatCurrency(today.totalOutstanding), icon: Wallet, color: 'text-amber-600 bg-amber-50 border-amber-200' },
+    { label: 'Refunds Paid', val: formatCurrency(today.refundsPaid), icon: TrendingUp, color: 'text-red-600 bg-red-50 border-red-200' },
     { label: "Today's Gold Rate", val: todayGoldRate24k !== null ? `${formatCurrency(todayGoldRate24k)}/g` : 'Not set', icon: Gem, color: 'text-gold bg-gold/10 border-gold/30' },
+  ];
+
+  // Payment-status counts + historical-cost profit, backend-derived.
+  const statusChips = [
+    { label: 'Paid', count: today.paidCount, color: 'text-emerald-700 bg-emerald-50 border-emerald-200' },
+    { label: 'Partial', count: today.partialCount, color: 'text-amber-700 bg-amber-50 border-amber-200' },
+    { label: 'Pending', count: today.pendingCount, color: 'text-slate-700 bg-slate-50 border-slate-200' },
   ];
 
   return (
@@ -691,10 +702,49 @@ function BillingSummarySection({
         })}
       </div>
 
+      {/* Payment-status counts + historical-cost profit. Current gold-value
+        * profit is NOT shown at period level: the backend has no aggregate for
+        * it (Phase A is per-line only), so it is not invented here. */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+        <div className="bg-white p-4 rounded-2xl border border-slate-200 shadow-xs sm:col-span-2">
+          <p className="font-bold text-slate-500 uppercase tracking-wider text-[10px] mb-2">Today&apos;s Bills by Payment Status</p>
+          <div className="flex flex-wrap gap-2">
+            {statusChips.map((c) => (
+              <div key={c.label} className={`px-3 py-1.5 rounded-xl border ${c.color} flex items-center gap-2`}>
+                <span className="text-[11px] font-bold uppercase">{c.label}</span>
+                <span className="text-sm font-extrabold font-mono">{c.count}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+        <div className="bg-white p-4 rounded-2xl border border-slate-200 shadow-xs">
+          <p className="font-bold text-slate-500 uppercase tracking-wider text-[10px]">Historical Cost Profit</p>
+          <p className="text-base font-extrabold font-display mt-1">
+            {today.totalProfit !== null && today.totalProfit > 0
+              ? <span className="text-emerald-600">{formatCurrency(today.totalProfit)}</span>
+              : today.totalLoss !== null && today.totalLoss > 0
+                ? <span className="text-red-600">-{formatCurrency(today.totalLoss)}</span>
+                : <span className="text-slate-400">—</span>}
+          </p>
+          <p className="text-[10px] text-slate-400 font-medium mt-0.5">vs vendor acquisition cost</p>
+        </div>
+        <div className="bg-white p-4 rounded-2xl border border-slate-200 shadow-xs">
+          <p className="font-bold text-slate-500 uppercase tracking-wider text-[10px]">Returns Today</p>
+          <p className="text-base font-extrabold font-display mt-1 text-[#0B0E23]">
+            {formatCurrency(today.salesReturns)}
+            <span className="text-[11px] font-semibold text-slate-500 ml-1">({today.returnCount})</span>
+          </p>
+          <p className="text-[10px] text-slate-400 font-medium mt-0.5">refunds {formatCurrency(today.refundsPaid)}</p>
+        </div>
+      </div>
+
       {thisMonth.billCount > 0 && (
         <div className="bg-white p-4 rounded-2xl border border-slate-200 shadow-xs flex flex-wrap items-center gap-x-6 gap-y-2 text-xs">
           <span className="font-bold text-slate-500 uppercase tracking-wider text-[10px]">This Month</span>
           <span className="font-mono font-bold text-[#0B0E23]">Sales {formatCurrency(thisMonth.totalSales)}</span>
+          <span className="font-mono font-bold text-emerald-600">Cash {formatCurrency(thisMonth.cashCollected)}</span>
+          <span className="font-mono font-bold text-violet-600">Scheme {formatCurrency(thisMonth.schemeRedemption)}</span>
+          <span className="font-mono font-bold text-amber-600">Outstanding {formatCurrency(thisMonth.totalOutstanding)}</span>
           {thisMonth.totalProfit !== null && <span className="font-mono font-bold text-emerald-600">🟢 Profit {formatCurrency(thisMonth.totalProfit)}</span>}
           {thisMonth.totalLoss !== null && thisMonth.totalLoss > 0 && <span className="font-mono font-bold text-red-600">🔴 Loss {formatCurrency(thisMonth.totalLoss)}</span>}
           <span className="font-mono font-bold text-slate-600">{thisMonth.itemsSold} items sold</span>
@@ -718,6 +768,10 @@ function BillingSummarySection({
         ) : (
           <div className="flex flex-wrap items-center gap-x-6 gap-y-2 text-xs">
             <span className="font-mono font-bold text-[#0B0E23]">Sales {formatCurrency(selectedPeriod.totalSales)}</span>
+            <span className="font-mono font-bold text-emerald-600">Cash {formatCurrency(selectedPeriod.cashCollected)}</span>
+            <span className="font-mono font-bold text-violet-600">Scheme {formatCurrency(selectedPeriod.schemeRedemption)}</span>
+            <span className="font-mono font-bold text-amber-600">Outstanding {formatCurrency(selectedPeriod.totalOutstanding)}</span>
+            {selectedPeriod.salesReturns > 0 && <span className="font-mono font-bold text-red-600">Returns {formatCurrency(selectedPeriod.salesReturns)} ({selectedPeriod.returnCount})</span>}
             {selectedPeriod.totalProfit !== null && <span className="font-mono font-bold text-emerald-600">🟢 Profit {formatCurrency(selectedPeriod.totalProfit)}</span>}
             {selectedPeriod.totalLoss !== null && selectedPeriod.totalLoss > 0 && <span className="font-mono font-bold text-red-600">🔴 Loss {formatCurrency(selectedPeriod.totalLoss)}</span>}
             <span className="font-mono font-bold text-slate-600">{selectedPeriod.billCount} bills</span>

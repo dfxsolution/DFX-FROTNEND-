@@ -884,13 +884,28 @@ async function downloadBlob(path: string, filename: string): Promise<void> {
 /* ------------------------------------------------------------------ */
 
 export interface BillingPeriodSummary {
+  /** Net sales (reversed sales excluded), backend-authoritative. */
   totalSales: number;
-  totalProfit: number | null;
+  totalProfit: number | null;   // historical-cost profit (Phase A basis)
   totalLoss: number | null;
   billCount: number;
   itemsSold: number;
   totalTax: number;
   avgBillValue: number;
+  // Reversal-aware sales + money movement + receivables (Phase F/G).
+  grossSales: number;
+  salesReturns: number;
+  returnCount: number;
+  totalRefunded: number;
+  cashCollected: number;
+  schemeRedemption: number;
+  refundsPaid: number;
+  totalPaid: number;
+  totalOutstanding: number;
+  paidCount: number;
+  partialCount: number;
+  pendingCount: number;
+  saleCount: number;
 }
 
 export type BusinessHistoryPeriod =
@@ -984,6 +999,19 @@ interface BackendBillingPeriodSummary {
   items_sold: number;
   total_tax: number;
   avg_bill_value: number;
+  gross_sales?: number;
+  sales_returns?: number;
+  return_count?: number;
+  total_refunded?: number;
+  cash_collected?: number;
+  scheme_redemption?: number;
+  refunds_paid?: number;
+  total_paid?: number;
+  total_outstanding?: number;
+  paid_count?: number;
+  partial_count?: number;
+  pending_count?: number;
+  sale_count?: number;
 }
 
 interface BackendRecentSale {
@@ -1017,6 +1045,19 @@ function mapPeriodSummary(raw: BackendBillingPeriodSummary): BillingPeriodSummar
     itemsSold: raw.items_sold,
     totalTax: raw.total_tax,
     avgBillValue: raw.avg_bill_value,
+    grossSales: raw.gross_sales ?? raw.total_sales,
+    salesReturns: raw.sales_returns ?? 0,
+    returnCount: raw.return_count ?? 0,
+    totalRefunded: raw.total_refunded ?? 0,
+    cashCollected: raw.cash_collected ?? 0,
+    schemeRedemption: raw.scheme_redemption ?? 0,
+    refundsPaid: raw.refunds_paid ?? 0,
+    totalPaid: raw.total_paid ?? 0,
+    totalOutstanding: raw.total_outstanding ?? 0,
+    paidCount: raw.paid_count ?? 0,
+    partialCount: raw.partial_count ?? 0,
+    pendingCount: raw.pending_count ?? 0,
+    saleCount: raw.sale_count ?? 0,
   };
 }
 
