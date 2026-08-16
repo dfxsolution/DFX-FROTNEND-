@@ -581,6 +581,7 @@ interface BackendSaleReturn {
   amount_collected_at_return: number;
   refund_amount: number;
   outstanding_written_off: number;
+  scheme_restored?: number;
   refund_method: PaymentMethod | null;
   refund_reference_no: string | null;
   inspection_status: 'PENDING' | 'RESALABLE' | 'DAMAGED';
@@ -607,6 +608,7 @@ export interface SaleReturn {
   amountCollectedAtReturn: number;
   refundAmount: number;
   outstandingWrittenOff: number;
+  schemeRestored: number;
   refundMethod: PaymentMethod | null;
   refundReferenceNo: string | null;
   inspectionStatus: 'PENDING' | 'RESALABLE' | 'DAMAGED';
@@ -682,6 +684,7 @@ function mapSaleReturn(raw: BackendSaleReturn): SaleReturn {
     amountCollectedAtReturn: raw.amount_collected_at_return,
     refundAmount: raw.refund_amount,
     outstandingWrittenOff: raw.outstanding_written_off,
+    schemeRestored: raw.scheme_restored ?? 0,
     refundMethod: raw.refund_method,
     refundReferenceNo: raw.refund_reference_no,
     inspectionStatus: raw.inspection_status,
