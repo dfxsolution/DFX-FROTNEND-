@@ -480,7 +480,10 @@ export default function NewSalePage() {
             onCustomerPriceCommit={(v) => recalculate(v, gstApplied, {}, 0)}
             recalculating={recalculating}
             error={priceError}
-            profitOrLoss={quote.profitOrLoss}
+            historicalProfitOrLoss={quote.historicalProfitOrLoss}
+            historicalProfitMarginPercent={quote.historicalProfitMarginPercent}
+            currentGoldValueProfitOrLoss={quote.currentGoldValueProfitOrLoss}
+            currentGoldValueMarginPercent={quote.currentGoldValueMarginPercent}
           />
 
           <div className="rounded-2xl border border-slate-200 bg-white p-4 grid grid-cols-3 gap-3">
@@ -719,7 +722,10 @@ function PriceComparisonPanel({
   onCustomerPriceCommit,
   recalculating,
   error,
-  profitOrLoss,
+  historicalProfitOrLoss,
+  historicalProfitMarginPercent,
+  currentGoldValueProfitOrLoss,
+  currentGoldValueMarginPercent,
 }: {
   purchaseCost: number | null;
   todaysGoldValue: number;
@@ -729,14 +735,15 @@ function PriceComparisonPanel({
   onCustomerPriceCommit: (v: string) => void;
   recalculating: boolean;
   error: string;
-  /** Backend-computed (subtotal before tax − historical purchase cost) —
-   * never re-derived client-side. Null when purchase cost isn't tracked
-   * or the caller is a non-privileged Staff role. */
-  profitOrLoss: number | null;
+  /** All backend-computed (Phase A), never re-derived client-side. Null when
+   * purchase cost isn't tracked or the caller is a non-privileged Staff role. */
+  historicalProfitOrLoss: number | null;
+  historicalProfitMarginPercent: number | null;
+  currentGoldValueProfitOrLoss: number | null;
+  currentGoldValueMarginPercent: number | null;
 }) {
   const parsed = parseFloat(customerPrice);
   const hasPrice = customerPrice.trim() !== '' && !isNaN(parsed);
-  const isProfit = profitOrLoss !== null && profitOrLoss >= 0;
 
   return (
     <div className="rounded-2xl border border-slate-200 bg-white p-5 space-y-4">
@@ -773,20 +780,57 @@ function PriceComparisonPanel({
         {error && <p className="text-xs font-medium text-red-600">{error}</p>}
       </div>
 
-      {hasPrice && (
-        <div className="grid grid-cols-1 gap-3 pt-2">
-          {profitOrLoss !== null && (
-            <div className={`rounded-xl p-3 text-center border ${isProfit ? 'bg-emerald-50 border-emerald-200' : 'bg-red-50 border-red-200'}`}>
-              <p className={`text-[10px] font-bold uppercase tracking-wider ${isProfit ? 'text-emerald-700' : 'text-red-700'}`}>
-                {isProfit ? '🟢 Profit' : '🔴 Loss'}
-              </p>
-              <p className={`font-mono font-extrabold text-sm ${isProfit ? 'text-emerald-700' : 'text-red-700'}`}>
-                {formatCurrency(Math.abs(profitOrLoss))}
-              </p>
-            </div>
-          )}
+      {hasPrice && (historicalProfitOrLoss !== null || currentGoldValueProfitOrLoss !== null) && (
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-2">
+          <ProfitView
+            label="Historical Cost Profit / Loss"
+            hint="vs vendor acquisition cost"
+            value={historicalProfitOrLoss}
+            marginPercent={historicalProfitMarginPercent}
+          />
+          <ProfitView
+            label="Today's Gold Value Profit / Loss"
+            hint="vs current gold value"
+            value={currentGoldValueProfitOrLoss}
+            marginPercent={currentGoldValueMarginPercent}
+          />
         </div>
       )}
+    </div>
+  );
+}
+
+/** One backend-computed profit view. Signed: positive = profit, negative =
+ * loss, zero = break-even. Never recalculated client-side; margin shown only
+ * when the backend supplies it. */
+function ProfitView({
+  label, hint, value, marginPercent,
+}: {
+  label: string;
+  hint: string;
+  value: number | null;
+  marginPercent: number | null;
+}) {
+  if (value === null) return null;
+  const profit = value > 0;
+  const loss = value < 0;
+  // Static class strings — Tailwind cannot detect dynamically-built class names.
+  const box = profit
+    ? 'bg-emerald-50 border-emerald-200'
+    : loss ? 'bg-red-50 border-red-200' : 'bg-slate-50 border-slate-200';
+  const head = profit ? 'text-emerald-700' : loss ? 'text-red-700' : 'text-slate-700';
+  const sub = profit ? 'text-emerald-600' : loss ? 'text-red-600' : 'text-slate-600';
+  const word = profit ? '🟢 Profit' : loss ? '🔴 Loss' : 'Break-even';
+  return (
+    <div className={`rounded-xl p-3 text-center border ${box}`}>
+      <p className={`text-[10px] font-bold uppercase tracking-wider ${head}`}>{label}</p>
+      <p className={`font-mono font-extrabold text-base mt-0.5 ${head}`}>
+        {loss ? '-' : ''}{formatCurrency(Math.abs(value))}
+      </p>
+      <p className={`text-[10px] font-semibold ${sub}`}>
+        {word}{marginPercent !== null ? ` · ${marginPercent.toFixed(2)}%` : ''}
+      </p>
+      <p className="text-[9px] text-slate-400 font-medium mt-0.5">{hint}</p>
     </div>
   );
 }

@@ -442,7 +442,13 @@ function mapBreakdown(raw: BackendPriceBreakdown): PriceBreakdown {
 export interface SaleQuote {
   inventoryItem: InventoryItem;
   breakdown: PriceBreakdown;
+  /** Historical-cost profit (kept for backward compat = historicalProfitOrLoss). */
   profitOrLoss: number | null;
+  // Phase A dual profit views, backend-computed, null for non-privileged.
+  historicalProfitOrLoss: number | null;
+  historicalProfitMarginPercent: number | null;
+  currentGoldValueProfitOrLoss: number | null;
+  currentGoldValueMarginPercent: number | null;
 }
 
 export interface SaleCreateData {
@@ -1406,14 +1412,27 @@ export const billingService = {
     if (overrides.makingChargeValue !== undefined) query.set('making_charge_value', String(overrides.makingChargeValue));
     if (overrides.wastageValue !== undefined) query.set('wastage_value', String(overrides.wastageValue));
     if (overrides.goldProfitPercent !== undefined) query.set('gold_profit_percent', String(overrides.goldProfitPercent));
-    const res = await apiClient.get<{ inventory_item: BackendInventoryItem; breakdown: BackendPriceBreakdown; profit_or_loss: number | null }>(
+    const res = await apiClient.get<{
+      inventory_item: BackendInventoryItem;
+      breakdown: BackendPriceBreakdown;
+      profit_or_loss: number | null;
+      historical_profit_or_loss?: number | null;
+      historical_profit_margin_percent?: number | null;
+      current_gold_value_profit_or_loss?: number | null;
+      current_gold_value_margin_percent?: number | null;
+    }>(
       `/billing/sell/quote/${encodeURIComponent(productCode)}?${query.toString()}`,
       { auth: true, signal }
     );
+    const d = res.data;
     return {
-      inventoryItem: mapInventoryItem(res.data.inventory_item),
-      breakdown: mapBreakdown(res.data.breakdown),
-      profitOrLoss: res.data.profit_or_loss,
+      inventoryItem: mapInventoryItem(d.inventory_item),
+      breakdown: mapBreakdown(d.breakdown),
+      profitOrLoss: d.profit_or_loss,
+      historicalProfitOrLoss: d.historical_profit_or_loss ?? d.profit_or_loss,
+      historicalProfitMarginPercent: d.historical_profit_margin_percent ?? null,
+      currentGoldValueProfitOrLoss: d.current_gold_value_profit_or_loss ?? null,
+      currentGoldValueMarginPercent: d.current_gold_value_margin_percent ?? null,
     };
   },
 
