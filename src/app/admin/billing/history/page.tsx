@@ -52,6 +52,14 @@ function paymentTone(status: SalePaymentStatus): 'success' | 'warn' | 'pending' 
   return 'pending';
 }
 
+/* Human label for a payment-ledger source. Scheme redemption and refunds are
+ * never shown as ordinary cash. */
+function sourceLabel(source: string): string {
+  if (source === 'SCHEME_REDEMPTION') return 'Scheme Redemption';
+  if (source === 'REFUND') return 'Refund';
+  return 'Collection';
+}
+
 function todayIso(): string {
   return new Date().toISOString().slice(0, 10);
 }
@@ -505,22 +513,64 @@ export default function SalesHistoryPage() {
                       No payment recorded against this invoice yet.
                     </p>
                   ) : (
-                    <ul className="divide-y divide-slate-100">
-                      {history.payments.map((p) => (
-                        <li key={p.id} className="px-4 py-2.5 flex items-center justify-between gap-3">
-                          <div>
-                            <p className="text-xs font-bold text-[#0B0E23] font-mono">{formatCurrency(p.amount)}</p>
-                            <p className="text-[11px] text-slate-500 font-medium">
-                              {new Date(p.paymentDate).toLocaleDateString('en-IN', { dateStyle: 'medium' })} · {p.paymentMethod.replace('_', ' ')}
-                              {p.referenceNo && ` · ${p.referenceNo}`}
-                            </p>
+                    <>
+                      {/* Settlement breakdown — grouped straight from the ledger
+                        * rows by source. Scheme redemption settles the invoice
+                        * but is NOT cash, and refunds are shown separately. */}
+                      {(() => {
+                        const cash = history.payments
+                          .filter((p) => p.source !== 'SCHEME_REDEMPTION' && p.source !== 'REFUND')
+                          .reduce((t, p) => t + p.amount, 0);
+                        const scheme = history.payments
+                          .filter((p) => p.source === 'SCHEME_REDEMPTION')
+                          .reduce((t, p) => t + p.amount, 0);
+                        const refunded = history.payments
+                          .filter((p) => p.source === 'REFUND')
+                          .reduce((t, p) => t - p.amount, 0);
+                        if (scheme <= 0 && refunded <= 0) return null;
+                        return (
+                          <div className="grid grid-cols-3 gap-2 px-4 py-2.5 text-center bg-slate-50/60 border-b border-slate-100">
+                            <div>
+                              <p className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">Cash Collected</p>
+                              <p className="text-xs font-bold font-mono text-emerald-700">{formatCurrency(cash)}</p>
+                            </div>
+                            <div>
+                              <p className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">Scheme Redemption</p>
+                              <p className="text-xs font-bold font-mono text-violet-700">{formatCurrency(scheme)}</p>
+                            </div>
+                            <div>
+                              <p className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">Refunded</p>
+                              <p className="text-xs font-bold font-mono text-red-700">{formatCurrency(refunded)}</p>
+                            </div>
                           </div>
-                          <p className="text-[10px] text-slate-400 font-semibold text-right shrink-0">
-                            {p.recordedByName || ''}
-                          </p>
-                        </li>
-                      ))}
-                    </ul>
+                        );
+                      })()}
+                      <ul className="divide-y divide-slate-100">
+                        {history.payments.map((p) => {
+                          const refund = p.source === 'REFUND';
+                          const scheme = p.source === 'SCHEME_REDEMPTION';
+                          const tone = refund ? 'text-red-700' : scheme ? 'text-violet-700' : 'text-[#0B0E23]';
+                          return (
+                            <li key={p.id} className="px-4 py-2.5 flex items-center justify-between gap-3">
+                              <div>
+                                <p className={`text-xs font-bold font-mono ${tone}`}>
+                                  {refund ? '-' : ''}{formatCurrency(Math.abs(p.amount))}
+                                </p>
+                                <p className="text-[11px] text-slate-500 font-medium">
+                                  <span className="font-bold">{sourceLabel(p.source)}</span>
+                                  {' · '}{new Date(p.paymentDate).toLocaleDateString('en-IN', { dateStyle: 'medium' })}
+                                  {!scheme && ` · ${p.paymentMethod.replace('_', ' ')}`}
+                                  {p.referenceNo && ` · ${p.referenceNo}`}
+                                </p>
+                              </div>
+                              <p className="text-[10px] text-slate-400 font-semibold text-right shrink-0">
+                                {p.recordedByName || ''}
+                              </p>
+                            </li>
+                          );
+                        })}
+                      </ul>
+                    </>
                   )}
 
                   {history.amountOutstanding > 0 && selected.saleStatus === 'COMPLETED' && (
