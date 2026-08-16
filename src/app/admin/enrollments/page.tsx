@@ -14,6 +14,7 @@ import {
   enrollmentService, AdminEnrollment, EnrollmentStatus, EnrollmentBalance,
 } from '@/services/enrollmentService';
 import { billingService, Sale } from '@/services/billingService';
+import { passbookService, Passbook } from '@/services/passbookService';
 import { ApiError } from '@/lib/apiClient';
 import { formatCurrency } from '@/lib/formatters';
 
@@ -38,6 +39,7 @@ export default function AdminEnrollmentsPage() {
    * no historical payment is ever editable from this screen. */
   const [balance, setBalance] = useState<EnrollmentBalance | null>(null);
   const [balanceLoading, setBalanceLoading] = useState(false);
+  const [passbook, setPassbook] = useState<Passbook | null>(null);
   const [panelError, setPanelError] = useState('');
   const [saving, setSaving] = useState(false);
   const [closeOpen, setCloseOpen] = useState(false);
@@ -75,10 +77,18 @@ export default function AdminEnrollmentsPage() {
 
   const openDetails = async (enrollmentId: string) => {
     setBalance(null);
+    setPassbook(null);
     setPanelError('');
     setBalanceLoading(true);
     try {
-      setBalance(await enrollmentService.getEnrollmentBalance(enrollmentId));
+      // Balance + contribution passbook are two authoritative reads; the
+      // passbook is contributions only, redemptions come from the balance.
+      const [bal, pb] = await Promise.all([
+        enrollmentService.getEnrollmentBalance(enrollmentId),
+        passbookService.getAdminPassbook(enrollmentId).catch(() => null),
+      ]);
+      setBalance(bal);
+      setPassbook(pb);
     } catch (err) {
       setPanelError(err instanceof ApiError ? err.message : 'Could not load the scheme balance.');
     } finally {
@@ -88,6 +98,7 @@ export default function AdminEnrollmentsPage() {
 
   const closeDetails = () => {
     setBalance(null);
+    setPassbook(null);
     setPanelError('');
   };
 
@@ -275,10 +286,12 @@ export default function AdminEnrollmentsPage() {
 
         {balance && (
           <div className="space-y-4">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-sm font-bold text-[#0B0E23]">{balance.customerName}</p>
-                <p className="text-[11px] text-slate-500 font-medium">{balance.schemeName}</p>
+            <div className="flex items-center justify-between gap-3">
+              <div className="min-w-0">
+                <p className="text-sm font-bold text-[#0B0E23] truncate">{balance.customerName}</p>
+                <p className="text-[11px] text-slate-500 font-medium truncate">
+                  {balance.schemeName} · Customer {balance.customerId} · {balance.enrollmentNumber}
+                </p>
               </div>
               <Badge variant={STATUS_VARIANT[balance.status]} dot>{balance.status}</Badge>
             </div>
@@ -314,6 +327,33 @@ export default function AdminEnrollmentsPage() {
               </div>
             )}
 
+            {/* Contributions — immutable ledger, read only. Distinct from
+              * redemptions below. */}
+            <div className="rounded-xl border border-slate-200 overflow-hidden">
+              <div className="flex items-center gap-2 px-3 py-2 bg-slate-50 border-b border-slate-200">
+                <BookOpen className="h-4 w-4 text-gold" />
+                <p className="text-[11px] font-bold uppercase tracking-wider text-slate-600">Contributions</p>
+              </div>
+              {!passbook || passbook.entries.length === 0 ? (
+                <p className="px-3 py-2.5 text-[11px] text-slate-500 font-medium">No contributions recorded.</p>
+              ) : (
+                <ul className="divide-y divide-slate-100 max-h-52 overflow-y-auto">
+                  {passbook.entries.map((e) => (
+                    <li key={e.id} className="px-3 py-2 flex items-center justify-between gap-3">
+                      <div className="min-w-0">
+                        <p className="text-xs font-bold font-mono text-emerald-700">{formatCurrency(e.amount)}</p>
+                        <p className="text-[11px] text-slate-500 font-medium truncate">
+                          {new Date(e.entryDate).toLocaleDateString('en-IN', { dateStyle: 'medium' })}
+                          {e.description ? ` · ${e.description}` : ''}
+                        </p>
+                      </div>
+                      <p className="text-[10px] text-slate-400 font-semibold shrink-0">#{e.entryNumber}</p>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
+
             <div className="rounded-xl border border-slate-200 overflow-hidden">
               <div className="flex items-center gap-2 px-3 py-2 bg-slate-50 border-b border-slate-200">
                 <Wallet className="h-4 w-4 text-gold" />
@@ -325,18 +365,24 @@ export default function AdminEnrollmentsPage() {
                 </p>
               ) : (
                 <ul className="divide-y divide-slate-100">
-                  {balance.redemptions.map((r) => (
-                    <li key={r.id} className="px-3 py-2 flex items-center justify-between gap-3">
-                      <div>
-                        <p className="text-xs font-bold font-mono text-[#0B0E23]">{formatCurrency(r.amount)}</p>
-                        <p className="text-[11px] text-slate-500 font-medium">
-                          Invoice {r.invoiceNumber} ·{' '}
-                          {new Date(r.redeemedAt).toLocaleDateString('en-IN', { dateStyle: 'medium' })}
-                        </p>
-                      </div>
-                      <p className="text-[10px] text-slate-400 font-semibold shrink-0">{r.recordedByName || ''}</p>
-                    </li>
-                  ))}
+                  {balance.redemptions.map((r) => {
+                    // Negative amount = balance restored by a returned scheme-settled sale.
+                    const restored = r.amount < 0;
+                    return (
+                      <li key={r.id} className="px-3 py-2 flex items-center justify-between gap-3">
+                        <div className="min-w-0">
+                          <p className={`text-xs font-bold font-mono ${restored ? 'text-emerald-700' : 'text-violet-700'}`}>
+                            {restored ? '+' : '-'}{formatCurrency(Math.abs(r.amount))}
+                          </p>
+                          <p className="text-[11px] text-slate-500 font-medium truncate">
+                            {restored ? 'Restored (return)' : 'Redeemed'} · Invoice {r.invoiceNumber} ·{' '}
+                            {new Date(r.redeemedAt).toLocaleDateString('en-IN', { dateStyle: 'medium' })}
+                          </p>
+                        </div>
+                        <p className="text-[10px] text-slate-400 font-semibold shrink-0">{r.recordedByName || ''}</p>
+                      </li>
+                    );
+                  })}
                 </ul>
               )}
             </div>
