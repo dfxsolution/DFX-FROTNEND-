@@ -330,6 +330,9 @@ export default function InventoryPage() {
                     <td className="px-4 py-3 text-xs font-medium text-slate-600">{item.vendorName || '—'}</td>
                     <td className="px-4 py-3">
                       <Badge variant={STOCK_BADGE[item.stockStatus]} dot>{item.stockStatus.replace('_', ' ')}</Badge>
+                      {item.stockStatus === 'RETURNED_PENDING_INSPECTION' && (
+                        <p className="text-[10px] text-amber-700 font-medium mt-1">Inspect from Sales History</p>
+                      )}
                     </td>
                     <td className="px-4 py-3 text-right">
                       <div className="flex items-center justify-end gap-1.5">
