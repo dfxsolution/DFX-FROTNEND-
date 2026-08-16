@@ -1279,6 +1279,16 @@ export const billingService = {
     return res.data.saleReturn ? mapSaleReturn(res.data.saleReturn) : null;
   },
 
+  /** The pending-inspection return for an inventory item, so the Inventory page
+   *  can drive the same inspection action as Sales History. Null if none. */
+  async getInventoryReturn(inventoryItemId: string): Promise<SaleReturn | null> {
+    const res = await apiClient.get<{ saleReturn: BackendSaleReturn | null }>(
+      `/billing/inventory/${inventoryItemId}/return`,
+      { auth: true }
+    );
+    return res.data.saleReturn ? mapSaleReturn(res.data.saleReturn) : null;
+  },
+
   async processSaleReturn(saleId: string, data: ProcessReturnData): Promise<SaleReturn> {
     const res = await apiClient.post<{ saleReturn: BackendSaleReturn }>(
       BILLING_SALES + '/' + saleId + '/return',

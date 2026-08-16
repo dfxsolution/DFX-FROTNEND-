@@ -10,11 +10,12 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { Toast } from '@/components/ui/toast';
 import { EmptyState } from '@/components/ui/empty-state';
 import { Dialog, DialogFooter } from '@/components/ui/dialog';
-import { Boxes, Plus, Pencil, ImagePlus, Search, PackageX, PackagePlus, SlidersHorizontal } from 'lucide-react';
+import { Boxes, Plus, Pencil, ImagePlus, Search, PackageX, PackagePlus, SlidersHorizontal, ClipboardCheck, PackageCheck } from 'lucide-react';
 import {
   billingService,
   InventoryItem,
   InventoryItemFormData,
+  SaleReturn,
   Vendor,
   Purity,
   ChargeType,
@@ -70,6 +71,55 @@ export default function InventoryPage() {
   const [loadError, setLoadError] = useState('');
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState<StockStatus | ''>('');
+
+  /* Direct inspection of a returned item. Reuses the same backend inspection
+   * action Sales History uses — the item's pending return is looked up by
+   * inventory id, then inspected by its sale_id. No duplicate inspection logic. */
+  const [inspectItem, setInspectItem] = useState<InventoryItem | null>(null);
+  const [inspectReturn, setInspectReturn] = useState<SaleReturn | null>(null);
+  const [inspectLoading, setInspectLoading] = useState(false);
+  const [inspectSaving, setInspectSaving] = useState(false);
+  const [inspectError, setInspectError] = useState('');
+
+  const openInspect = async (item: InventoryItem) => {
+    setInspectItem(item);
+    setInspectReturn(null);
+    setInspectError('');
+    setInspectLoading(true);
+    try {
+      const rec = await billingService.getInventoryReturn(item.id);
+      if (!rec) {
+        setInspectError('No return awaiting inspection was found for this item. Refresh and retry.');
+      }
+      setInspectReturn(rec);
+    } catch (err) {
+      setInspectError(err instanceof ApiError ? err.message : 'Could not load the return.');
+    } finally {
+      setInspectLoading(false);
+    }
+  };
+
+  const closeInspect = () => {
+    setInspectItem(null);
+    setInspectReturn(null);
+    setInspectError('');
+  };
+
+  const handleInspect = async (outcome: 'RESALABLE' | 'DAMAGED') => {
+    if (!inspectReturn) return;
+    setInspectSaving(true);
+    setInspectError('');
+    try {
+      // Same authoritative inspection endpoint as Sales History, keyed by sale_id.
+      await billingService.recordReturnInspection(inspectReturn.saleId, outcome);
+      closeInspect();
+      await loadItems();
+    } catch (err) {
+      setInspectError(err instanceof ApiError ? err.message : 'Could not record the inspection.');
+    } finally {
+      setInspectSaving(false);
+    }
+  };
   const [vendorFilter, setVendorFilter] = useState('');
 
   const [vendors, setVendors] = useState<Vendor[]>([]);
@@ -330,9 +380,7 @@ export default function InventoryPage() {
                     <td className="px-4 py-3 text-xs font-medium text-slate-600">{item.vendorName || '—'}</td>
                     <td className="px-4 py-3">
                       <Badge variant={STOCK_BADGE[item.stockStatus]} dot>{item.stockStatus.replace('_', ' ')}</Badge>
-                      {item.stockStatus === 'RETURNED_PENDING_INSPECTION' && (
-                        <p className="text-[10px] text-amber-700 font-medium mt-1">Inspect from Sales History</p>
-                      )}
+
                     </td>
                     <td className="px-4 py-3 text-right">
                       <div className="flex items-center justify-end gap-1.5">
@@ -342,6 +390,11 @@ export default function InventoryPage() {
                         {item.stockStatus === 'IN_STOCK' && (
                           <Button size="sm" variant="outline" onClick={() => handleRetireItem(item)}>
                             Retire
+                          </Button>
+                        )}
+                        {item.stockStatus === 'RETURNED_PENDING_INSPECTION' && (
+                          <Button size="sm" variant="outline" onClick={() => openInspect(item)}>
+                            <ClipboardCheck className="h-3.5 w-3.5 mr-1" /> Inspect
                           </Button>
                         )}
                       </div>
@@ -528,6 +581,60 @@ export default function InventoryPage() {
       <BillingDefaultsDialog isOpen={defaultsDialogOpen} onClose={() => setDefaultsDialogOpen(false)} />
 
       {toast && <Toast message={toast.message} type={toast.type} onClose={() => setToast(null)} />}
+
+      {/* Direct return inspection — same outcomes and backend action as the
+        * Sales History return panel. */}
+      <Dialog
+        isOpen={!!inspectItem}
+        onClose={closeInspect}
+        title={inspectItem ? `Inspect ${inspectItem.productCode}` : undefined}
+        maxWidth="max-w-md"
+      >
+        {inspectLoading && <p className="text-xs text-slate-500 font-medium">Loading return…</p>}
+
+        {inspectItem && !inspectLoading && (
+          <div className="space-y-3">
+            <div className="rounded-xl border border-slate-200 divide-y divide-slate-100">
+              {[
+                ['Product', inspectItem.productName],
+                ['Code', inspectItem.productCode],
+                ['Current Status', inspectItem.stockStatus.replace(/_/g, ' ')],
+                ...(inspectReturn ? [
+                  ['Original Invoice', inspectReturn.invoiceNumber],
+                  ['Return Reason', inspectReturn.reason],
+                ] as [string, string][] : []),
+              ].map(([label, value]) => (
+                <div key={label} className="flex items-center justify-between px-3 py-2 gap-3">
+                  <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wider shrink-0">{label}</span>
+                  <span className="text-xs font-bold text-[#0B0E23] text-right truncate">{value}</span>
+                </div>
+              ))}
+            </div>
+
+            {inspectReturn && (
+              <p className="text-[11px] text-slate-500 font-medium">
+                Good Condition returns the item to sellable stock (IN_STOCK). Mark Damaged keeps it
+                out of sellable stock (DAMAGED).
+              </p>
+            )}
+            {inspectError && <p className="text-[11px] font-medium text-red-600">{inspectError}</p>}
+          </div>
+        )}
+
+        <DialogFooter>
+          <Button variant="outline" onClick={closeInspect}>Cancel</Button>
+          {inspectReturn && (
+            <>
+              <Button variant="outline" isLoading={inspectSaving} onClick={() => handleInspect('DAMAGED')}>
+                Mark Damaged
+              </Button>
+              <Button isLoading={inspectSaving} onClick={() => handleInspect('RESALABLE')}>
+                <PackageCheck className="h-3.5 w-3.5 mr-1" /> Good Condition
+              </Button>
+            </>
+          )}
+        </DialogFooter>
+      </Dialog>
     </div>
   );
 }
